@@ -92,7 +92,7 @@ function publicUser(nick, user) {
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: "32kb" }));
-app.use(express.static(path.join(__dirname, "public")));
+app.use(express.static(__dirname));
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true, size: N, pixels: Object.keys(canvas).length });
