@@ -220,7 +220,7 @@
   "use strict";
   const TOKEN_KEY = "pixelbattle.token.v1";
   const SETTINGS_KEY = "pixelbattle.settings.v1";
-  const API = "";
+  const API = "https://pipixels.onrender.com";
 
   function loadJSON(k, f) {
     try { var r = localStorage.getItem(k); return r ? JSON.parse(r) : f; } catch (e) { return f; }
