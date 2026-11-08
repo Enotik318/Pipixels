@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Pixel Battle</title>
+<style>
+  :root {
+    --bg: #0b0b0d;
+    --panel: #141418;
+    --ink: #f2f2f4;
+    --mute: #8b8b96;
+    --line: #2a2a31;
+    --soft: #1c1c22;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: flex;
+    background: var(--bg);
+    color: var(--ink);
+    font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    overflow: hidden;
+    user-select: none;
+  }
+  button, input { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  a { color: inherit; text-decoration: none; }
+
+  #view {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    touch-action: none;
+    cursor: crosshair;
+    background:
+      radial-gradient(ellipse 90% 60% at 50% 0%, rgba(255,255,255,.05), transparent 55%),
+      radial-gradient(circle, #222229 1px, transparent 1.2px) 0 0 / 22px 22px,
+      var(--bg);
+  }
+  #stage {
+    position: absolute;
+    left: 0;
+    top: 0;
+    transform-origin: 0 0;
+    will-change: transform;
+  }
+  .board {
+    position: relative;
+    padding: 10px;
+    background:
+      linear-gradient(180deg, #2a2a30, #1a1a1f);
+    box-shadow:
+      0 0 0 1px rgba(255,255,255,.08),
+      0 18px 50px rgba(0,0,0,.45),
+      inset 0 1px 0 rgba(255,255,255,.06);
+  }
+  .board::before {
+    content: "";
+    position: absolute;
+    inset: 4px;
+    border: 1px solid rgba(255,255,255,.06);
+    pointer-events: none;
+  }
+  #cv {
+    display: block;
+    image-rendering: pixelated;
+    background: #ffffff;
+    border-radius: 0;
+    box-shadow:
+      inset 0 0 0 1px rgba(0,0,0,.08),
+      0 0 0 1px rgba(255,255,255,.04);
+  }
+  .fx { position: absolute; pointer-events: none; z-index: 5; }
+  #hud {
+    position: absolute; left: 12px; top: 12px;
+    padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px;
+    background: rgba(20,20,24,.92); color: var(--mute); pointer-events: none;
+    font-variant-numeric: tabular-nums; backdrop-filter: blur(8px);
+  }
+  #status {
+    position: absolute; left: 12px; bottom: 12px;
+    padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px;
+    background: rgba(20,20,24,.92); color: var(--mute);
+    backdrop-filter: blur(8px); font-size: 12px;
+  }
+  #zoom {
+    position: absolute; right: 12px; top: 12px;
+    display: flex; align-items: center;
+    border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
+    background: rgba(20,20,24,.92); backdrop-filter: blur(8px);
+  }
+  #zoom button { width: 36px; height: 36px; border: 0; background: transparent; font-size: 18px; }
+  #zoom button:hover { background: var(--soft); }
+  #zoom span { min-width: 52px; text-align: center; color: var(--mute); font-size: 13px; }
+
+  #side {
+    width: 300px; margin: 12px;
+    border: 1px solid var(--line); border-radius: 18px;
+    background: rgba(20,20,24,.96);
+    display: flex; flex-direction: column; min-height: 0; overflow: hidden;
+    box-shadow: 0 16px 50px rgba(0,0,0,.35);
+  }
+  .head {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 14px; border-bottom: 1px solid var(--line);
+  }
+  .logo { font-weight: 700; letter-spacing: -0.03em; }
+  .logo small { display: block; margin-top: 2px; color: var(--mute); font-size: 11px; font-weight: 500; letter-spacing: 0; }
+  .icons { display: flex; gap: 6px; }
+  .ib {
+    width: 36px; height: 36px; border: 1px solid var(--line); border-radius: 10px;
+    background: transparent; display: grid; place-items: center; padding: 0;
+  }
+  .ib:hover { background: var(--soft); }
+  .av {
+    width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center;
+    color: #fff; font-size: 11px; font-weight: 700; background: #666;
+  }
+  .body { flex: 1; overflow: auto; }
+  section { padding: 14px; border-bottom: 1px solid var(--line); }
+  section:last-child { border-bottom: 0; }
+  h2 {
+    margin: 0 0 10px; color: var(--mute); font-size: 11px; font-weight: 650;
+    letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .user-card {
+    display: flex; align-items: center; gap: 10px; padding: 10px;
+    border: 1px solid var(--line); border-radius: 12px; background: var(--soft);
+  }
+  .user-card .av { width: 34px; height: 34px; font-size: 14px; }
+  .user-card b { display: block; font-size: 13px; }
+  .user-card span { color: var(--mute); font-size: 12px; }
+  .swatches { display: grid; grid-template-columns: repeat(8, 1fr); gap: 7px; }
+  .sw { aspect-ratio: 1; border-radius: 50%; border: 1px solid rgba(255,255,255,.16); padding: 0; transition: transform .12s; }
+  .sw:hover { transform: scale(1.12); }
+  .sw.on { outline: 2px solid #fff; outline-offset: 2px; }
+  .svwrap { position: relative; height: 140px; border-radius: 12px; overflow: hidden; cursor: crosshair; touch-action: none; margin-bottom: 10px; }
+  .svwrap canvas { width: 100%; height: 100%; display: block; }
+  .knob {
+    position: absolute; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%;
+    border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.45); pointer-events: none;
+  }
+  .hue {
+    -webkit-appearance: none; appearance: none; width: 100%; height: 12px; border-radius: 99px; margin: 0;
+    background: linear-gradient(90deg,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00);
+  }
+  .hue::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: #fff; border: 0; box-shadow: 0 0 0 1px rgba(0,0,0,.3); }
+  .hex-row { display: flex; gap: 8px; margin-top: 10px; }
+  .chip { width: 34px; height: 34px; border-radius: 8px; border: 1px solid rgba(255,255,255,.15); flex: none; }
+  .hex { flex: 1; height: 34px; border: 1px solid var(--line); border-radius: 8px; background: transparent; padding: 0 10px; }
+  .bar { height: 6px; border-radius: 99px; overflow: hidden; background: var(--line); }
+  .bar i { display: block; width: 100%; height: 100%; background: #fff; transform-origin: left center; }
+  #cdt { margin: 8px 0 0; color: var(--mute); font-size: 12px; }
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .stat { padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--soft); }
+  .stat b { display: block; font-size: 18px; font-variant-numeric: tabular-nums; }
+  .stat span { color: var(--mute); font-size: 11px; }
+  .tools { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .tools button { height: 36px; border: 1px solid var(--line); border-radius: 10px; background: transparent; }
+  .tools button:hover { background: var(--soft); }
+  @media (max-width: 720px) {
+    body { flex-direction: column; }
+    #side { width: auto; max-height: 46vh; margin: 0 10px 10px; }
+  }
+</style>
+</head>
+<body>
+  <main id="view">
+    <div id="stage">
+      <div class="board">
+        <canvas id="cv" width="50" height="50"></canvas>
+      </div>
+    </div>
+    <div id="hud">—</div>
+    <div id="status">загрузка...</div>
+    <div id="zoom">
+      <button type="button" id="zout">−</button>
+      <span id="zl">100%</span>
+      <button type="button" id="zin">+</button>
+    </div>
+  </main>
+
+  <aside id="side">
+    <div class="head">
+      <div class="logo">pixel battle<small>50×50 · online</small></div>
+      <div class="icons">
+        <a class="ib" href="profile.html" title="Профиль"><span class="av" id="avatar">?</span></a>
+      </div>
+    </div>
+    <div class="body">
+      <section>
+        <div class="user-card">
+          <span class="av" id="sideAv">?</span>
+          <div>
+            <b id="sideName">Гость</b>
+            <span id="sideSub">нужен вход</span>
+          </div>
+        </div>
+      </section>
+      <section>
+        <h2>Цвет</h2>
+        <div class="svwrap" id="svwrap">
+          <canvas id="sv" width="256" height="140"></canvas>
+          <div class="knob" id="knob"></div>
+        </div>
+        <input class="hue" id="hue" type="range" min="0" max="359" value="0" />
+        <div class="swatches" id="swatches"></div>
+        <div class="hex-row">
+          <span class="chip" id="chip"></span>
+          <input class="hex" id="hex" maxlength="7" value="#111111" />
+        </div>
+      </section>
+      <section>
+        <h2>Кулдаун</h2>
+        <div class="bar"><i id="cdbar"></i></div>
+        <p id="cdt">Можно ставить</p>
+      </section>
+      <section>
+        <h2>Поле</h2>
+        <div class="stats">
+          <div class="stat"><b id="painted">0</b><span>закрашено</span></div>
+          <div class="stat"><b id="fill">0%</b><span>от поля</span></div>
+        </div>
+      </section>
+      <section>
+        <div class="tools">
+          <button type="button" id="btnCenter">Центр</button>
+          <button type="button" id="btnPng">PNG</button>
+        </div>
+      </section>
+    </div>
+  </aside>
+
+<script>
+(function () {
+  "use strict";
+  const N = 50;
+  const COOLDOWN = 2000;
+  const TOKEN_KEY = "pixelbattle.token.v1";
+  const SETTINGS_KEY = "pixelbattle.settings.v1";
+  const API = ""; // same origin on Render
+  const COLORS = ["#111111","#ffffff","#ff3b4e","#ffc62e","#2dce89","#38a3ff","#9d4edd","#c98a5b","#7a4a2e","#1e3a4c","#a5e04a","#19c3c9","#2557e8","#cdb4ff","#ff8fb1","#f6e58d"];
+  const PAD = 10; // board padding for hit-test
+
+  function loadJSON(k,f){try{var r=localStorage.getItem(k);return r?JSON.parse(r):f}catch(e){return f}}
+  function saveJSON(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
+  function fmt(n){return Number(n).toLocaleString("ru")}
+  function ini(n){return n?Array.from(n)[0].toUpperCase():"?"}
+  function avColor(n){if(!n)return"#666";var h=0;for(var i=0;i<n.length;i++)h=(h*31+n.charCodeAt(i))%360;return"hsl("+h+" 55% 45%)"}
+  function hsvToHex(h,s,v){var f=function(n){var k=(n+h/60)%6;return v-v*s*Math.max(0,Math.min(k,4-k,1))};return"#"+[f(5),f(3),f(1)].map(function(x){return Math.round(x*255).toString(16).padStart(2,"0")}).join("")}
+  function hexToHsv(c){var n=parseInt(c.slice(1),16),r=((n>>16)&255)/255,g=((n>>8)&255)/255,b=(n&255)/255,mx=Math.max(r,g,b),d=mx-Math.min(r,g,b),h=0;if(d){if(mx===r)h=((g-b)/d+6)%6;else if(mx===g)h=(b-r)/d+2;else h=(r-g)/d+4;h*=60}return[h,mx?d/mx:0,mx]}
+
+  var token = localStorage.getItem(TOKEN_KEY) || "";
+  var me = null;
+  var settings = Object.assign({ fx: true, sound: true }, loadJSON(SETTINGS_KEY, {}));
+  var pixels = {};
+  var color = "#111111", HH = 0, SS = 0, VV = 0.07;
+  var lastPlace = 0, camX = 0, camY = 0, scale = 1;
+  var placing = false;
+
+  var view = document.getElementById("view");
+  var stage = document.getElementById("stage");
+  var cv = document.getElementById("cv");
+  var ctx = cv.getContext("2d");
+  var hud = document.getElementById("hud");
+  var statusEl = document.getElementById("status");
+  var zl = document.getElementById("zl");
+  var cdbar = document.getElementById("cdbar");
+  var cdt = document.getElementById("cdt");
+  var paintedEl = document.getElementById("painted");
+  var fillEl = document.getElementById("fill");
+  var swatches = document.getElementById("swatches");
+  var chip = document.getElementById("chip");
+  var hexInput = document.getElementById("hex");
+  var sv = document.getElementById("sv");
+  var svg = sv.getContext("2d");
+  var knob = document.getElementById("knob");
+  var hueEl = document.getElementById("hue");
+  var svwrap = document.getElementById("svwrap");
+
+  async function api(path, opts) {
+    opts = opts || {};
+    var headers = Object.assign({ "Content-Type": "application/json" }, opts.headers || {});
+    if (token) headers.Authorization = "Bearer " + token;
+    var res = await fetch(API + path, {
+      method: opts.method || "GET",
+      headers: headers,
+      body: opts.body ? JSON.stringify(opts.body) : undefined
+    });
+    var data = null;
+    try { data = await res.json(); } catch (e) { data = null; }
+    if (!res.ok) {
+      var err = new Error((data && data.error) || ("Ошибка " + res.status));
+      err.status = res.status;
+      err.data = data;
+      throw err;
+    }
+    return data;
+  }
+
+  function refreshUserUI() {
+    var name = me ? me.nick : "";
+    ["avatar", "sideAv"].forEach(function (id) {
+      var el = document.getElementById(id);
+      el.textContent = ini(name);
+      el.style.background = avColor(name);
+    });
+    document.getElementById("sideName").textContent = name || "Гость";
+    document.getElementById("sideSub").textContent = name ? "онлайн" : "нужен вход для пикселей";
+  }
+
+  function redraw() {
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, N, N);
+    var keys = Object.keys(pixels);
+    for (var i = 0; i < keys.length; i++) {
+      var p = keys[i].split(",");
+      ctx.fillStyle = pixels[keys[i]];
+      ctx.fillRect(+p[0], +p[1], 1, 1);
+    }
+    paintedEl.textContent = fmt(keys.length);
+    fillEl.textContent = ((keys.length / (N * N)) * 100).toFixed(1).replace(".", ",") + "%";
+  }
+
+  function applyCam() {
+    stage.style.transform = "translate(" + camX + "px," + camY + "px) scale(" + scale + ")";
+    zl.textContent = Math.round(scale * 100) + "%";
+  }
+  function fit() {
+    var w = view.clientWidth, h = view.clientHeight;
+    var board = N + PAD * 2;
+    scale = Math.min(w, h) * 0.72 / board;
+    if (scale < 3) scale = 3;
+    camX = (w - board * scale) / 2;
+    camY = (h - board * scale) / 2;
+    applyCam();
+  }
+  function zoomAt(factor, cx, cy) {
+    var next = scale * factor;
+    if (next < 2) next = 2;
+    if (next > 40) next = 40;
+    factor = next / scale;
+    camX = cx - (cx - camX) * factor;
+    camY = cy - (cy - camY) * factor;
+    scale = next;
+    applyCam();
+  }
+
+  function paintSV() {
+    svg.fillStyle = hsvToHex(HH, 1, 1);
+    svg.fillRect(0, 0, 256, 140);
+    var a = svg.createLinearGradient(0, 0, 256, 0);
+    a.addColorStop(0, "#fff"); a.addColorStop(1, "rgba(255,255,255,0)");
+    svg.fillStyle = a; svg.fillRect(0, 0, 256, 140);
+    a = svg.createLinearGradient(0, 0, 0, 140);
+    a.addColorStop(0, "rgba(0,0,0,0)"); a.addColorStop(1, "#000");
+    svg.fillStyle = a; svg.fillRect(0, 0, 256, 140);
+  }
+  function syncColorUI() {
+    color = hsvToHex(HH, SS, VV);
+    knob.style.left = (SS * 100) + "%";
+    knob.style.top = ((1 - VV) * 100) + "%";
+    hueEl.value = Math.round(HH) % 360;
+    chip.style.background = color;
+    if (document.activeElement !== hexInput) hexInput.value = color;
+    var bs = swatches.querySelectorAll(".sw");
+    for (var i = 0; i < bs.length; i++) bs[i].classList.toggle("on", bs[i].dataset.c === color);
+  }
+  function setColor(c) {
+    c = String(c || "").toLowerCase();
+    if (!/^#[0-9a-f]{6}$/.test(c)) return;
+    var t = hexToHsv(c);
+    if (t[1] > 0 && t[2] > 0) HH = t[0];
+    SS = t[1]; VV = t[2];
+    paintSV(); syncColorUI();
+  }
+  function pickSV(e) {
+    var r = sv.getBoundingClientRect();
+    SS = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+    VV = 1 - Math.min(1, Math.max(0, (e.clientY - r.top) / r.height));
+    syncColorUI();
+  }
+  svwrap.addEventListener("pointerdown", function (e) {
+    svwrap.setPointerCapture(e.pointerId);
+    pickSV(e);
+    function m(ev) { pickSV(ev); }
+    function u() { svwrap.removeEventListener("pointermove", m); svwrap.removeEventListener("pointerup", u); }
+    svwrap.addEventListener("pointermove", m);
+    svwrap.addEventListener("pointerup", u);
+  });
+  hueEl.addEventListener("input", function () { HH = +hueEl.value; paintSV(); syncColorUI(); });
+  hexInput.addEventListener("input", function () {
+    var t = hexInput.value.trim();
+    if (t.charAt(0) !== "#") t = "#" + t;
+    if (/^#[0-9a-fA-F]{6}$/.test(t)) setColor(t.toLowerCase());
+  });
+  for (var i = 0; i < COLORS.length; i++) {
+    (function (c) {
+      var b = document.createElement("button");
+      b.type = "button"; b.className = "sw"; b.style.background = c; b.dataset.c = c;
+      b.onclick = function () { setColor(c); };
+      swatches.appendChild(b);
+    })(COLORS[i]);
+  }
+  setColor("#111111");
+
+  function cellFromEvent(e) {
+    var r = view.getBoundingClientRect();
+    var lx = (e.clientX - r.left - camX) / scale - PAD;
+    var ly = (e.clientY - r.top - camY) / scale - PAD;
+    var x = Math.floor(lx);
+    var y = Math.floor(ly);
+    if (x < 0 || y < 0 || x >= N || y >= N) return null;
+    return [x, y];
+  }
+
+  var audioCtx = null;
+  function ensureAudio() {
+    if (!audioCtx) { try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
+    if (audioCtx && audioCtx.state === "suspended") audioCtx.resume();
+  }
+  function beep() {
+    if (!settings.sound) return;
+    ensureAudio();
+    if (!audioCtx) return;
+    try {
+      var t0 = audioCtx.currentTime;
+      var o1 = audioCtx.createOscillator(), o2 = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o1.type = "sine"; o2.type = "triangle";
+      o1.frequency.setValueAtTime(520, t0);
+      o1.frequency.exponentialRampToValueAtTime(280, t0 + 0.12);
+      o2.frequency.setValueAtTime(780, t0);
+      o2.frequency.exponentialRampToValueAtTime(420, t0 + 0.1);
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(0.045, t0 + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.16);
+      o1.connect(g); o2.connect(g); g.connect(audioCtx.destination);
+      o1.start(t0); o2.start(t0); o1.stop(t0 + 0.18); o2.stop(t0 + 0.18);
+    } catch (e) {}
+  }
+  function placeFx(x, y, c) {
+    if (!settings.fx) return;
+    var size = Math.max(10, scale);
+    var cx = camX + (PAD + x + 0.5) * scale;
+    var cy = camY + (PAD + y + 0.5) * scale;
+    var col = c === "#ffffff" ? "#cfcfd6" : c;
+    function spawn(css, frames, ms) {
+      var d = document.createElement("div");
+      d.className = "fx";
+      d.style.cssText = css;
+      view.appendChild(d);
+      d.animate(frames, { duration: ms, easing: "cubic-bezier(.16,.84,.24,1)" }).onfinish = function () { d.remove(); };
+    }
+    spawn(
+      "left:" + (cx - size / 2) + "px;top:" + (cy - size / 2) + "px;width:" + size + "px;height:" + size + "px;background:" + c + ";border-radius:" + Math.max(2, size * 0.12) + "px;box-shadow:0 10px 24px rgba(0,0,0,.35);",
+      [{ transform: "translateY(-18px) scale(.2)", opacity: 0 }, { transform: "translateY(0) scale(1.08)", opacity: 1, offset: .6 }, { transform: "translateY(0) scale(1)", opacity: 1 }],
+      320
+    );
+    spawn(
+      "left:" + (cx - 22) + "px;top:" + (cy - 22) + "px;width:44px;height:44px;border:2px solid " + col + ";border-radius:50%;",
+      [{ transform: "scale(.2)", opacity: .9 }, { transform: "scale(1.5)", opacity: 0 }],
+      520
+    );
+  }
+
+  async function place(x, y) {
+    if (!me) {
+      if (confirm("Чтобы ставить пиксели, нужен аккаунт.\nПерейти в профиль?")) {
+        location.href = "profile.html";
+      }
+      return;
+    }
+    if (placing) return;
+    if (Date.now() - lastPlace < COOLDOWN) return;
+    var key = x + "," + y;
+    if (pixels[key] === color) return;
+
+    placing = true;
+    statusEl.textContent = "отправка...";
+    try {
+      var data = await api("/api/pixel", { method: "POST", body: { x: x, y: y, color: color } });
+      lastPlace = Date.now();
+      if (data.pixels) pixels = data.pixels;
+      else pixels[key] = color;
+      if (data.user) me = data.user;
+      redraw();
+      refreshUserUI();
+      beep();
+      placeFx(x, y, color);
+      statusEl.textContent = "онлайн · " + (me ? me.nick : "");
+    } catch (err) {
+      if (err.status === 401) {
+        token = "";
+        me = null;
+        localStorage.removeItem(TOKEN_KEY);
+        refreshUserUI();
+        statusEl.textContent = "нужен вход";
+        if (confirm("Сессия истекла. Перейти в профиль?")) location.href = "profile.html";
+      } else if (err.status === 429) {
+        var wait = (err.data && err.data.wait) || COOLDOWN;
+        lastPlace = Date.now() - (COOLDOWN - wait);
+        statusEl.textContent = "кулдаун";
+      } else {
+        statusEl.textContent = err.message || "ошибка";
+      }
+    } finally {
+      placing = false;
+    }
+  }
+
+  var drag = null, moved = false;
+  view.addEventListener("pointerdown", function (e) {
+    ensureAudio();
+    view.setPointerCapture(e.pointerId);
+    drag = { x: e.clientX, y: e.clientY, camX: camX, camY: camY };
+    moved = false;
+  });
+  view.addEventListener("pointermove", function (e) {
+    var c = cellFromEvent(e);
+    hud.textContent = c ? (c[0] + ", " + c[1]) : "—";
+    if (!drag) return;
+    var dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    if (Math.hypot(dx, dy) > 4) moved = true;
+    if (moved) {
+      camX = drag.camX + dx;
+      camY = drag.camY + dy;
+      applyCam();
+    }
+  });
+  view.addEventListener("pointerup", function (e) {
+    if (!moved) {
+      var c = cellFromEvent(e);
+      if (c) place(c[0], c[1]);
+    }
+    drag = null; moved = false;
+  });
+  view.addEventListener("pointercancel", function () { drag = null; moved = false; });
+  view.addEventListener("pointerleave", function () { hud.textContent = "—"; });
+  view.addEventListener("wheel", function (e) {
+    e.preventDefault();
+    var r = view.getBoundingClientRect();
+    zoomAt(Math.exp(-e.deltaY * 0.0015), e.clientX - r.left, e.clientY - r.top);
+  }, { passive: false });
+
+  document.getElementById("zin").onclick = function () { zoomAt(1.25, view.clientWidth / 2, view.clientHeight / 2); };
+  document.getElementById("zout").onclick = function () { zoomAt(0.8, view.clientWidth / 2, view.clientHeight / 2); };
+  document.getElementById("btnCenter").onclick = fit;
+  document.getElementById("btnPng").onclick = function () {
+    var s = 14, out = document.createElement("canvas");
+    out.width = out.height = N * s;
+    var o = out.getContext("2d");
+    o.imageSmoothingEnabled = false;
+    o.fillStyle = "#fff";
+    o.fillRect(0, 0, out.width, out.height);
+    o.drawImage(cv, 0, 0, out.width, out.height);
+    out.toBlob(function (b) {
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(b);
+      a.download = "pixel-battle.png";
+      a.click();
+    });
+  };
+
+  (function tick() {
+    var left = Math.max(0, COOLDOWN - (Date.now() - lastPlace));
+    cdbar.style.transform = "scaleX(" + (1 - left / COOLDOWN) + ")";
+    cdt.textContent = left ? ("Через " + Math.ceil(left / 1000) + " с") : "Можно ставить";
+    requestAnimationFrame(tick);
+  })();
+
+  async function boot() {
+    try {
+      if (token) {
+        var meData = await api("/api/me");
+        me = meData.user;
+      }
+    } catch (e) {
+      token = "";
+      me = null;
+      localStorage.removeItem(TOKEN_KEY);
+    }
+    refreshUserUI();
+    try {
+      var data = await api("/api/canvas");
+      pixels = data.pixels || {};
+      redraw();
+      statusEl.textContent = me ? ("онлайн · " + me.nick) : "онлайн · гость";
+    } catch (e) {
+      statusEl.textContent = "сервер недоступен";
+    }
+    fit();
+    setInterval(async function () {
+      try {
+        var data = await api("/api/canvas");
+        pixels = data.pixels || {};
+        redraw();
+      } catch (e) {}
+    }, 3000);
+  }
+
+  boot();
+})();
+</script>
+</body>
+</html>
