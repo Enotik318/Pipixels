@@ -276,7 +276,7 @@
   "use strict";
   const TOKEN_KEY = "pixelbattle.token.v1";
   const SETTINGS_KEY = "pixelbattle.settings.v1";
-  const API = (location.hostname.indexOf("onrender.com") !== -1) ? "" : "https://pipixels.onrender.com";
+  const API = ""; // API и сайт обслуживаются одним Express-сервером
 
   const DEFAULTS = {
     fx: true,

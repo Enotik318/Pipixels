@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -288,7 +289,7 @@
         </div>
       </section>
       <section>
-               <div class="tools">
+        <div class="tools">
           <button type="button" id="btnCenter">Центр</button>
           <button type="button" id="btnGrid">Сетка</button>
           <button type="button" id="btnPng">PNG</button>
@@ -297,60 +298,104 @@
       </section>
     </div>
   </aside>
+
 <script>
 (function () {
   "use strict";
+
   const W = 250;
   const H = 250;
   const COOLDOWN = 1200;
   const TOKEN_KEY = "pixelbattle.token.v1";
   const SETTINGS_KEY = "pixelbattle.settings.v1";
-  const API = (location.hostname.indexOf("onrender.com") !== -1) ? "" : "https://onrender.com";
-  const COLORS = ["#111111","#ffffff","#ff3b4e","#ffc62e","#2dce89","#38a3ff","#9d4edd","#c98a5b","#7a4a2e","#1e3a4c","#a5e04a","#19c3c9","#2557e8","#cdb4ff","#ff8fb1","#f6e58d"];
+
+  // Сервер API расположен на том же домене, что и сайт.
+  const API = "";
+
+  const COLORS = [
+    "#111111","#ffffff","#ff3b4e","#ffc62e",
+    "#2dce89","#38a3ff","#9d4edd","#c98a5b",
+    "#7a4a2e","#1e3a4c","#a5e04a","#19c3c9",
+    "#2557e8","#cdb4ff","#ff8fb1","#f6e58d"
+  ];
 
   function loadJSON(k, f) {
-    try { var r = localStorage.getItem(k); return r ? JSON.parse(r) : f; } catch (e) { return f; }
+    try {
+      var r = localStorage.getItem(k);
+      return r ? JSON.parse(r) : f;
+    } catch (e) {
+      return f;
+    }
   }
-  function fmt(n) { return Number(n).toLocaleString("ru"); }
-  function ini(n) { return n ? Array.from(n)[0].toUpperCase() : "?"; }
+
+  function fmt(n) {
+    return Number(n).toLocaleString("ru");
+  }
+
+  function ini(n) {
+    return n ? Array.from(n)[0].toUpperCase() : "?";
+  }
+
   function avColor(n) {
     if (!n) return "#555";
     var h = 0;
-    for (var i = 0; i < n.length; i++) h = (h * 31 + n.charCodeAt(i)) % 360;
+    for (var i = 0; i < n.length; i++) {
+      h = (h * 31 + n.charCodeAt(i)) % 360;
+    }
     return "hsl(" + h + " 55% 45%)";
   }
+
   function hsvToHex(h, s, v) {
     var f = function (n) {
       var k = (n + h / 60) % 6;
       return v - v * s * Math.max(0, Math.min(k, 4 - k, 1));
     };
+
     return "#" + [f(5), f(3), f(1)].map(function (x) {
       return Math.round(x * 255).toString(16).padStart(2, "0");
     }).join("");
   }
+
   function hexToHsv(c) {
     var n = parseInt(c.slice(1), 16);
-    var r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
-    var mx = Math.max(r, g, b), d = mx - Math.min(r, g, b), h = 0;
+    var r = ((n >> 16) & 255) / 255;
+    var g = ((n >> 8) & 255) / 255;
+    var b = (n & 255) / 255;
+
+    var mx = Math.max(r, g, b);
+    var d = mx - Math.min(r, g, b);
+    var h = 0;
+
     if (d) {
       if (mx === r) h = ((g - b) / d + 6) % 6;
       else if (mx === g) h = (b - r) / d + 2;
       else h = (r - g) / d + 4;
       h *= 60;
     }
+
     return [h, mx ? d / mx : 0, mx];
   }
 
   var token = localStorage.getItem(TOKEN_KEY) || "";
   var me = null;
+
   var settings = Object.assign({
-    fx: true, sound: true, volume: 0.6,
-    showHud: true, showCoords: true, showGrid: true, reducedMotion: false, confirmPlace: false
+    fx: true,
+    sound: true,
+    volume: 0.6,
+    showHud: true,
+    showCoords: true,
+    showGrid: true,
+    reducedMotion: false,
+    confirmPlace: false
   }, loadJSON(SETTINGS_KEY, {}));
+
   var pixels = {};
   var lastOnline = 0;
-  var color = "#111111", HH = 0, SS = 0, VV = 0.07;
-  var lastPlace = 0, camX = 0, camY = 0, scale = 1;
+  var color = "#111111";
+  var HH = 0, SS = 0, VV = 0.07;
+  var lastPlace = 0;
+  var camX = 0, camY = 0, scale = 1;
   var placing = false;
 
   var view = document.getElementById("view");
@@ -377,26 +422,45 @@
 
   async function api(path, opts) {
     opts = opts || {};
-    var headers = Object.assign({ "Content-Type": "application/json" }, opts.headers || {});
-    if (token) headers.Authorization = "Bearer " + token;
+
+    var headers = Object.assign({
+      "Content-Type": "application/json"
+    }, opts.headers || {});
+
+    if (token) {
+      headers.Authorization = "Bearer " + token;
+    }
+
     var res = await fetch(API + path, {
+      cache: "no-store",
       method: opts.method || "GET",
       headers: headers,
       body: opts.body ? JSON.stringify(opts.body) : undefined
     });
+
     var data = null;
-    try { data = await res.json(); } catch (e) { data = null; }
+
+    try {
+      data = await res.json();
+    } catch (e) {
+      data = null;
+    }
+
     if (!res.ok) {
-      var err = new Error((data && data.error) || ("Ошибка " + res.status));
+      var err = new Error(
+        (data && data.error) || ("Ошибка " + res.status)
+      );
       err.status = res.status;
       err.data = data;
       throw err;
     }
+
     return data;
   }
 
   function setAvatarEl(el, name, avatarUrl) {
     if (!el) return;
+
     if (avatarUrl) {
       el.textContent = "";
       el.style.backgroundImage = "url(" + avatarUrl + ")";
@@ -417,6 +481,7 @@
     var prog = me && me.progress ? me.progress : null;
     var lvlEl = document.getElementById("lvl");
     var stamEl = document.getElementById("stam");
+
     if (!prog) {
       if (lvlEl) lvlEl.textContent = "—";
       if (stamEl) stamEl.textContent = "—";
@@ -424,21 +489,40 @@
       cdt.textContent = me ? "…" : "войди, чтобы рисовать";
       return;
     }
+
     if (lvlEl) lvlEl.textContent = String(prog.level || 1);
-    if (stamEl) stamEl.textContent = (prog.stamina || 0) + "/" + (prog.staminaMax || 30);
-    var ratio = prog.staminaMax ? (prog.stamina / prog.staminaMax) : 0;
-    cdbar.style.transform = "scaleX(" + Math.max(0, Math.min(1, ratio)) + ")";
-    if (prog.stamina >= 1) cdt.textContent = "Можно ставить";
-    else cdt.textContent = "Восстановление " + Math.ceil((prog.nextIn || 0) / 1000) + " с";
+
+    if (stamEl) {
+      stamEl.textContent =
+        (prog.stamina || 0) + "/" + (prog.staminaMax || 30);
+    }
+
+    var ratio = prog.staminaMax
+      ? (prog.stamina / prog.staminaMax)
+      : 0;
+
+    cdbar.style.transform =
+      "scaleX(" + Math.max(0, Math.min(1, ratio)) + ")";
+
+    if (prog.stamina >= 1) {
+      cdt.textContent = "Можно ставить";
+    } else {
+      cdt.textContent =
+        "Восстановление " + Math.ceil((prog.nextIn || 0) / 1000) + " с";
+    }
   }
 
   function refreshUserUI() {
     var name = me ? me.nick : "";
     var av = me && me.avatar ? me.avatar : "";
+
     setAvatarEl(document.getElementById("avatar"), name, av);
     setAvatarEl(document.getElementById("sideAv"), name, av);
+
     document.getElementById("sideName").textContent = name || "Гость";
-    document.getElementById("sideSub").textContent = name ? "онлайн · профиль →" : "войти в профиле";
+    document.getElementById("sideSub").textContent =
+      name ? "онлайн · профиль →" : "войти в профиле";
+
     applyUiSettings();
     updateProgressUI();
   }
@@ -453,12 +537,16 @@
       gridCv.width = gw;
       gridCv.height = gh;
     }
+
     gridCtx.clearRect(0, 0, gw, gh);
 
     if (!settings.showGrid || scale < 4) return;
 
     var alpha = Math.min(0.22, (scale - 3) * 0.025);
-    gridCtx.strokeStyle = "rgba(0, 0, 0, " + alpha.toFixed(3) + ")";
+
+    gridCtx.strokeStyle =
+      "rgba(0, 0, 0, " + alpha.toFixed(3) + ")";
+
     gridCtx.lineWidth = 1;
     gridCtx.beginPath();
 
@@ -467,34 +555,48 @@
       gridCtx.moveTo(px, 0);
       gridCtx.lineTo(px, gh);
     }
+
     for (var y = 1; y < H; y++) {
       var py = Math.round(y * cellPx) + 0.5;
       gridCtx.moveTo(0, py);
       gridCtx.lineTo(gw, py);
     }
+
     gridCtx.stroke();
   }
 
   function redraw() {
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, W, H);
+
     var keys = Object.keys(pixels);
+
     for (var i = 0; i < keys.length; i++) {
       var parts = keys[i].split(",");
       var cell = pixels[keys[i]];
+
       ctx.fillStyle = (cell && cell.color) ? cell.color : cell;
       ctx.fillRect(+parts[0], +parts[1], 1, 1);
     }
+
     paintedEl.textContent = fmt(keys.length);
-    fillEl.textContent = ((keys.length / (W * H)) * 100).toFixed(2).replace(".", ",") + "%";
+
+    fillEl.textContent =
+      ((keys.length / (W * H)) * 100)
+        .toFixed(2)
+        .replace(".", ",") + "%";
+
     var onlineEl = document.getElementById("logoSub");
+
     if (onlineEl && typeof lastOnline === "number") {
       onlineEl.textContent = "250×250 · " + lastOnline + " онлайн";
     }
   }
 
   function applyCam() {
-    stage.style.transform = "translate(" + camX + "px," + camY + "px) scale(" + scale + ")";
+    stage.style.transform =
+      "translate(" + camX + "px," + camY + "px) scale(" + scale + ")";
+
     zl.textContent = Math.round(scale * 100) + "%";
     drawGrid();
   }
@@ -502,191 +604,355 @@
   function fit() {
     var vw = view.clientWidth;
     var vh = view.clientHeight;
+
     var s = Math.min(vw / W, vh / H) * 0.88;
+
     if (s < 0.35) s = 0.35;
     if (s > 8) s = 8;
+
     scale = s;
     camX = (vw - W * scale) / 2;
     camY = (vh - H * scale) / 2;
+
     applyCam();
   }
 
   function zoomAt(factor, cx, cy) {
     var next = scale * factor;
+
     if (next < 0.35) next = 0.35;
     if (next > 40) next = 40;
+
     factor = next / scale;
+
     camX = cx - (cx - camX) * factor;
     camY = cy - (cy - camY) * factor;
+
     scale = next;
     applyCam();
   }
+
   function paintSV() {
     svg.fillStyle = hsvToHex(HH, 1, 1);
     svg.fillRect(0, 0, 256, 140);
+
     var a = svg.createLinearGradient(0, 0, 256, 0);
-    a.addColorStop(0, "#fff"); a.addColorStop(1, "rgba(255,255,255,0)");
-    svg.fillStyle = a; svg.fillRect(0, 0, 256, 140);
+    a.addColorStop(0, "#fff");
+    a.addColorStop(1, "rgba(255,255,255,0)");
+
+    svg.fillStyle = a;
+    svg.fillRect(0, 0, 256, 140);
+
     a = svg.createLinearGradient(0, 0, 0, 140);
-    a.addColorStop(0, "rgba(0,0,0,0)"); a.addColorStop(1, "#000");
-    svg.fillStyle = a; svg.fillRect(0, 0, 256, 140);
+    a.addColorStop(0, "rgba(0,0,0,0)");
+    a.addColorStop(1, "#000");
+
+    svg.fillStyle = a;
+    svg.fillRect(0, 0, 256, 140);
   }
+
   function syncColorUI() {
     color = hsvToHex(HH, SS, VV);
+
     knob.style.left = (SS * 100) + "%";
     knob.style.top = ((1 - VV) * 100) + "%";
+
     hueEl.value = Math.round(HH) % 360;
     chip.style.background = color;
-    if (document.activeElement !== hexInput) hexInput.value = color;
+
+    if (document.activeElement !== hexInput) {
+      hexInput.value = color;
+    }
+
     var bs = swatches.querySelectorAll(".sw");
-    for (var i = 0; i < bs.length; i++) bs[i].classList.toggle("on", bs[i].dataset.c === color);
+
+    for (var i = 0; i < bs.length; i++) {
+      bs[i].classList.toggle("on", bs[i].dataset.c === color);
+    }
   }
+
   function setColor(c) {
     c = String(c || "").toLowerCase();
+
     if (!/^#[0-9a-f]{6}$/.test(c)) return;
+
     var t = hexToHsv(c);
-    if (t.at(1) > 0 && t.at(2) > 0) HH = t.at(0);
-    SS = t.at(1); VV = t.at(2);
-    paintSV(); syncColorUI();
+
+    if (t.at(1) > 0 && t.at(2) > 0) {
+      HH = t.at(0);
+    }
+
+    SS = t.at(1);
+    VV = t.at(2);
+
+    paintSV();
+    syncColorUI();
   }
 
   function pickSV(e) {
     var r = sv.getBoundingClientRect();
-    SS = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
-    VV = 1 - Math.min(1, Math.max(0, (e.clientY - r.top) / r.height));
+
+    SS = Math.min(
+      1,
+      Math.max(0, (e.clientX - r.left) / r.width)
+    );
+
+    VV = 1 - Math.min(
+      1,
+      Math.max(0, (e.clientY - r.top) / r.height)
+    );
+
     syncColorUI();
   }
+
   svwrap.addEventListener("pointerdown", function (e) {
     svwrap.setPointerCapture(e.pointerId);
     pickSV(e);
-    function m(ev) { pickSV(ev); }
+
+    function m(ev) {
+      pickSV(ev);
+    }
+
     function u() {
       svwrap.removeEventListener("pointermove", m);
       svwrap.removeEventListener("pointerup", u);
     }
+
     svwrap.addEventListener("pointermove", m);
     svwrap.addEventListener("pointerup", u);
   });
-  hueEl.addEventListener("input", function () { HH = +hueEl.value; paintSV(); syncColorUI(); });
+
+  hueEl.addEventListener("input", function () {
+    HH = +hueEl.value;
+    paintSV();
+    syncColorUI();
+  });
+
   hexInput.addEventListener("input", function () {
     var t = hexInput.value.trim();
+
     if (t.charAt(0) !== "#") t = "#" + t;
-    if (/^#[0-9a-fA-F]{6}$/.test(t)) setColor(t.toLowerCase());
+
+    if (/^#[0-9a-fA-F]{6}$/.test(t)) {
+      setColor(t.toLowerCase());
+    }
   });
+
   for (var i = 0; i < COLORS.length; i++) {
     (function (c) {
       var b = document.createElement("button");
-      b.type = "button"; b.className = "sw"; b.style.background = c; b.dataset.c = c;
-      b.onclick = function () { setColor(c); };
+
+      b.type = "button";
+      b.className = "sw";
+      b.style.background = c;
+      b.dataset.c = c;
+      b.onclick = function () {
+        setColor(c);
+      };
+
       swatches.appendChild(b);
     })(COLORS.at(i));
   }
+
   setColor("#111111");
 
   function cellFromEvent(e) {
     var r = view.getBoundingClientRect();
+
     var x = Math.floor((e.clientX - r.left - camX) / scale);
     var y = Math.floor((e.clientY - r.top - camY) / scale);
-    if (x < 0 || y < 0 || x >= W || y >= H) return null;
+
+    if (x < 0 || y < 0 || x >= W || y >= H) {
+      return null;
+    }
+
     return [x, y];
   }
 
   var audioCtx = null;
+
   function ensureAudio() {
     if (!audioCtx) {
-      try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+      try {
+        audioCtx = new (
+          window.AudioContext || window.webkitAudioContext
+        )();
+      } catch (e) {}
     }
-    if (audioCtx && audioCtx.state === "suspended") audioCtx.resume();
+
+    if (audioCtx && audioCtx.state === "suspended") {
+      audioCtx.resume();
+    }
   }
+
   function beep() {
     if (!settings.sound) return;
+
     ensureAudio();
     if (!audioCtx) return;
+
     try {
       var t0 = audioCtx.currentTime;
       var o1 = audioCtx.createOscillator();
       var o2 = audioCtx.createOscillator();
       var g = audioCtx.createGain();
-      o1.type = "sine"; o2.type = "triangle";
+
+      o1.type = "sine";
+      o2.type = "triangle";
+
       o1.frequency.setValueAtTime(520, t0);
       o1.frequency.exponentialRampToValueAtTime(280, t0 + 0.12);
+
       o2.frequency.setValueAtTime(780, t0);
       o2.frequency.exponentialRampToValueAtTime(420, t0 + 0.1);
-      var vol = Math.max(0.0001, Math.min(1, settings.volume == null ? 0.6 : settings.volume) * 0.08);
+
+      var vol = Math.max(
+        0.0001,
+        Math.min(1, settings.volume == null ? 0.6 : settings.volume) * 0.08
+      );
+
       g.gain.setValueAtTime(0.0001, t0);
       g.gain.exponentialRampToValueAtTime(vol, t0 + 0.01);
       g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.16);
-      o1.connect(g); o2.connect(g); g.connect(audioCtx.destination);
-      o1.start(t0); o2.start(t0); o1.stop(t0 + 0.18); o2.stop(t0 + 0.18);
+
+      o1.connect(g);
+      o2.connect(g);
+      g.connect(audioCtx.destination);
+
+      o1.start(t0);
+      o2.start(t0);
+      o1.stop(t0 + 0.18);
+      o2.stop(t0 + 0.18);
     } catch (e) {}
   }
 
   function placeFx(x, y, c) {
     if (!settings.fx || settings.reducedMotion) return;
+
     var size = Math.max(8, scale);
     var cx = camX + (x + 0.5) * scale;
     var cy = camY + (y + 0.5) * scale;
     var col = c === "#ffffff" ? "#cfcfd6" : c;
+
     function spawn(css, frames, ms) {
       var d = document.createElement("div");
+
       d.className = "fx";
       d.style.cssText = css;
       view.appendChild(d);
-      d.animate(frames, { duration: ms, easing: "cubic-bezier(.16,.84,.24,1)" }).onfinish = function () { d.remove(); };
+
+      d.animate(frames, {
+        duration: ms,
+        easing: "cubic-bezier(.16,.84,.24,1)"
+      }).onfinish = function () {
+        d.remove();
+      };
     }
+
     spawn(
-      "left:" + (cx - size / 2) + "px;top:" + (cy - size / 2) + "px;width:" + size + "px;height:" + size + "px;background:" + c + ";border-radius:2px;",
-      [{ transform: "scale(.2)", opacity: 0 }, { transform: "scale(1)", opacity: 1 }],
+      "left:" + (cx - size / 2) +
+      "px;top:" + (cy - size / 2) +
+      "px;width:" + size +
+      "px;height:" + size +
+      "px;background:" + c +
+      ";border-radius:2px;",
+      [
+        { transform: "scale(.2)", opacity: 0 },
+        { transform: "scale(1)", opacity: 1 }
+      ],
       220
     );
+
     spawn(
-      "left:" + (cx - 16) + "px;top:" + (cy - 16) + "px;width:32px;height:32px;border:2px solid " + col + ";border-radius:50%;",
-      [{ transform: "scale(.3)", opacity: .8 }, { transform: "scale(1.4)", opacity: 0 }],
+      "left:" + (cx - 16) +
+      "px;top:" + (cy - 16) +
+      "px;width:32px;height:32px;border:2px solid " +
+      col + ";border-radius:50%;",
+      [
+        { transform: "scale(.3)", opacity: .8 },
+        { transform: "scale(1.4)", opacity: 0 }
+      ],
       400
     );
   }
 
   async function place(x, y) {
     if (!me) {
-      if (confirm("Чтобы ставить пиксели, нужен аккаунт.\nПерейти в профиль?")) {
+      if (confirm(
+        "Чтобы ставить пиксели, нужен аккаунт.\nПерейти в профиль?"
+      )) {
         location.href = "profile.html";
       }
       return;
     }
-    if (settings.confirmPlace && !confirm("Поставить пиксель сюда?")) return;
+
+    if (settings.confirmPlace && !confirm("Поставить пиксель сюда?")) {
+      return;
+    }
+
     if (placing) return;
     if (Date.now() - lastPlace < COOLDOWN) return;
 
     var key = x + "," + y;
     var prevCell = pixels[key];
-    var prevColor = prevCell ? (prevCell.color ? prevCell.color : prevCell) : "#ffffff";
+
+    var prevColor = prevCell
+      ? (prevCell.color ? prevCell.color : prevCell)
+      : "#ffffff";
+
     if (String(prevColor).toLowerCase() === color) return;
 
     placing = true;
     statusEl.textContent = "отправка...";
+
     try {
-      var data = await api("/api/pixel", { method: "POST", body: { x: x, y: y, color: color } });
+      var data = await api("/api/pixel", {
+        method: "POST",
+        body: {
+          x: x,
+          y: y,
+          color: color
+        }
+      });
+
       lastPlace = Date.now();
-      if (data.pixels) pixels = data.pixels;
-      else pixels[key] = color;
+
+      if (data.pixels) {
+        pixels = data.pixels;
+      } else {
+        pixels[key] = color;
+      }
+
       if (data.user) {
         me = data.user;
-        if (me.progress) me.progress._localAt = Date.now();
+
+        if (me.progress) {
+          me.progress._localAt = Date.now();
+        }
       }
+
       redraw();
       refreshUserUI();
       beep();
       placeFx(x, y, color);
+
       statusEl.textContent = "онлайн · " + me.nick;
     } catch (err) {
       if (err.status === 401) {
-        token = ""; me = null;
+        token = "";
+        me = null;
+
         localStorage.removeItem(TOKEN_KEY);
         refreshUserUI();
+
         statusEl.textContent = "нужен вход";
-        if (confirm("Сессия истекла. В профиль?")) location.href = "profile.html";
+
+        if (confirm("Сессия истекла. В профиль?")) {
+          location.href = "profile.html";
+        }
       } else if (err.status === 429) {
         var wait = (err.data && err.data.wait) || COOLDOWN;
+
         lastPlace = Date.now() - (COOLDOWN - wait);
         statusEl.textContent = "кулдаун";
       } else {
@@ -698,19 +964,36 @@
   }
 
   var pointers = new Map();
-  var drag = null, moved = false, pinchDist = 0;
+  var drag = null;
+  var moved = false;
+  var pinchDist = 0;
 
   view.addEventListener("pointerdown", function (e) {
     ensureAudio();
+
     view.setPointerCapture(e.pointerId);
-    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    pointers.set(e.pointerId, {
+      x: e.clientX,
+      y: e.clientY
+    });
 
     if (pointers.size === 1) {
-      drag = { x: e.clientX, y: e.clientY, camX: camX, camY: camY };
+      drag = {
+        x: e.clientX,
+        y: e.clientY,
+        camX: camX,
+        camY: camY
+      };
+
       moved = false;
     } else if (pointers.size === 2) {
       var pts = Array.from(pointers.values());
-      pinchDist = Math.hypot(pts.at(0).x - pts.at(1).x, pts.at(0).y - pts.at(1).y);
+
+      pinchDist = Math.hypot(
+        pts.at(0).x - pts.at(1).x,
+        pts.at(0).y - pts.at(1).y
+      );
+
       drag = null;
       moved = true;
     }
@@ -718,32 +1001,58 @@
 
   view.addEventListener("pointermove", function (e) {
     if (pointers.has(e.pointerId)) {
-      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      pointers.set(e.pointerId, {
+        x: e.clientX,
+        y: e.clientY
+      });
     }
 
     if (pointers.size === 2) {
       var pts = Array.from(pointers.values());
-      var newDist = Math.hypot(pts.at(0).x - pts.at(1).x, pts.at(0).y - pts.at(1).y);
+
+      var newDist = Math.hypot(
+        pts.at(0).x - pts.at(1).x,
+        pts.at(0).y - pts.at(1).y
+      );
+
       if (pinchDist > 0 && newDist > 0) {
         var r = view.getBoundingClientRect();
-        var midX = (pts.at(0).x + pts.at(1).x) / 2 - r.left;
-        var midY = (pts.at(0).y + pts.at(1).y) / 2 - r.top;
+
+        var midX =
+          (pts.at(0).x + pts.at(1).x) / 2 - r.left;
+
+        var midY =
+          (pts.at(0).y + pts.at(1).y) / 2 - r.top;
+
         zoomAt(newDist / pinchDist, midX, midY);
       }
+
       pinchDist = newDist;
       return;
     }
 
     var c = cellFromEvent(e);
-    if (!c) { hud.textContent = "—"; }
-    else {
+
+    if (!c) {
+      hud.textContent = "—";
+    } else {
       var cell = pixels[c.at(0) + "," + c.at(1)];
       var by = cell && cell.by ? cell.by : "";
-      hud.textContent = by ? (c.at(0) + ", " + c.at(1) + " · " + by) : (c.at(0) + ", " + c.at(1));
+
+      hud.textContent = by
+        ? (c.at(0) + ", " + c.at(1) + " · " + by)
+        : (c.at(0) + ", " + c.at(1));
     }
+
     if (!drag) return;
-    var dx = e.clientX - drag.x, dy = e.clientY - drag.y;
-    if (Math.hypot(dx, dy) > 4) moved = true;
+
+    var dx = e.clientX - drag.x;
+    var dy = e.clientY - drag.y;
+
+    if (Math.hypot(dx, dy) > 4) {
+      moved = true;
+    }
+
     if (moved) {
       camX = drag.camX + dx;
       camY = drag.camY + dy;
@@ -753,11 +1062,19 @@
 
   function endPointer(e) {
     pointers.delete(e.pointerId);
-    if (pointers.size < 2) pinchDist = 0;
+
+    if (pointers.size < 2) {
+      pinchDist = 0;
+    }
+
     if (drag && !moved && pointers.size === 0) {
       var c = cellFromEvent(e);
-      if (c) place(c.at(0), c.at(1));
+
+      if (c) {
+        place(c.at(0), c.at(1));
+      }
     }
+
     if (pointers.size === 0) {
       drag = null;
       moved = false;
@@ -766,127 +1083,241 @@
 
   view.addEventListener("pointerup", endPointer);
   view.addEventListener("pointercancel", endPointer);
-  view.addEventListener("pointerleave", function () { hud.textContent = "—"; });
+
+  view.addEventListener("pointerleave", function () {
+    hud.textContent = "—";
+  });
 
   view.addEventListener("wheel", function (e) {
     e.preventDefault();
+
     var r = view.getBoundingClientRect();
     var factor = Math.exp(-e.deltaY * 0.0015);
-    zoomAt(factor, e.clientX - r.left, e.clientY - r.top);
+
+    zoomAt(
+      factor,
+      e.clientX - r.left,
+      e.clientY - r.top
+    );
   }, { passive: false });
 
   document.getElementById("zin").onclick = function () {
-    zoomAt(1.3, view.clientWidth / 2, view.clientHeight / 2);
+    zoomAt(
+      1.3,
+      view.clientWidth / 2,
+      view.clientHeight / 2
+    );
   };
+
   document.getElementById("zout").onclick = function () {
-    zoomAt(0.77, view.clientWidth / 2, view.clientHeight / 2);
+    zoomAt(
+      0.77,
+      view.clientWidth / 2,
+      view.clientHeight / 2
+    );
   };
+
   document.getElementById("btnCenter").onclick = fit;
 
   var btnGrid = document.getElementById("btnGrid");
+
   function syncGridBtn() {
     btnGrid.classList.toggle("on", !!settings.showGrid);
     btnGrid.textContent = settings.showGrid ? "Сетка ✓" : "Сетка";
   }
+
   syncGridBtn();
+
   btnGrid.onclick = function () {
     settings.showGrid = !settings.showGrid;
-    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch (e) {}
+
+    try {
+      localStorage.setItem(
+        SETTINGS_KEY,
+        JSON.stringify(settings)
+      );
+    } catch (e) {}
+
     syncGridBtn();
     drawGrid();
   };
 
   document.getElementById("btnShare").onclick = async function () {
     var url = location.origin + "/";
+
     try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(url);
+      } else {
+        prompt("Ссылка на поле:", url);
+        return;
+      }
 
-if (navigator.clipboard && navigator.clipboard.writeText) {
-await navigator.clipboard.writeText(url);
-} else {
-prompt("Ссылка на поле:", url);
-return;
-}
-statusEl.textContent = "ссылка скопирована";
-setTimeout(function () {
-statusEl.textContent = me ? ("онлайн · " + me.nick) : "онлайн · гость";
-}, 1500);
-} catch (e) {
-prompt("Ссылка на поле:", url);
-}
-};
-document.getElementById("btnPng").onclick = function () {
-var s = 2;
-var out = document.createElement("canvas");
-out.width = W * s; out.height = H * s;
-var o = out.getContext("2d");
-o.imageSmoothingEnabled = false;
-o.fillStyle = "#fff";
-o.fillRect(0, 0, out.width, out.height);
-o.drawImage(cv, 0, 0, out.width, out.height);
-out.toBlob(function (b) {
-var a = document.createElement("a");
-a.href = URL.createObjectURL(b);
-a.download = "pixel-battle.png";
-a.click();
-});
-};
-(function tick() {
-if (me && me.progress) {
-var p = me.progress;
-if (p.stamina < p.staminaMax && p.regenMs) {
-var now = Date.now();
-if (!p._localAt) p._localAt = now;
-var elapsed = now - p._localAt;
-if (elapsed >= p.regenMs) {
-var gain = Math.floor(elapsed / p.regenMs);
-p.stamina = Math.min(p.staminaMax, p.stamina + gain);
-p._localAt += gain * p.regenMs;
-p.nextIn = p.stamina >= p.staminaMax ? 0 : (p.regenMs - (now - p._localAt));
-} else {
-p.nextIn = p.regenMs - elapsed;
-}
-}
-updateProgressUI();
-}
-var left = Math.max(0, COOLDOWN - (Date.now() - lastPlace));
-if (left > 0 && me) {
-cdt.textContent = "Кулдаун " + Math.ceil(left / 1000) + " с";
-}
-requestAnimationFrame(tick);
+      statusEl.textContent = "ссылка скопирована";
+
+      setTimeout(function () {
+        statusEl.textContent = me
+          ? ("онлайн · " + me.nick)
+          : "онлайн · гость";
+      }, 1500);
+    } catch (e) {
+      prompt("Ссылка на поле:", url);
+    }
+  };
+
+  document.getElementById("btnPng").onclick = function () {
+    var s = 2;
+    var out = document.createElement("canvas");
+
+    out.width = W * s;
+    out.height = H * s;
+
+    var o = out.getContext("2d");
+    o.imageSmoothingEnabled = false;
+    o.fillStyle = "#fff";
+    o.fillRect(0, 0, out.width, out.height);
+    o.drawImage(cv, 0, 0, out.width, out.height);
+
+    out.toBlob(function (b) {
+      if (!b) return;
+
+      var a = document.createElement("a");
+      var objectUrl = URL.createObjectURL(b);
+
+      a.href = objectUrl;
+      a.download = "pixel-battle.png";
+      a.click();
+
+      setTimeout(function () {
+        URL.revokeObjectURL(objectUrl);
+      }, 1000);
+    });
+  };
+
+  (function tick() {
+    if (me && me.progress) {
+      var p = me.progress;
+
+      if (p.stamina < p.staminaMax && p.regenMs) {
+        var now = Date.now();
+
+        if (!p._localAt) {
+          p._localAt = now;
+        }
+
+        var elapsed = now - p._localAt;
+
+        if (elapsed >= p.regenMs) {
+          var gain = Math.floor(elapsed / p.regenMs);
+
+          p.stamina = Math.min(
+            p.staminaMax,
+            p.stamina + gain
+          );
+
+          p._localAt += gain * p.regenMs;
+
+          p.nextIn = p.stamina >= p.staminaMax
+            ? 0
+            : (p.regenMs - (now - p._localAt));
+        } else {
+          p.nextIn = p.regenMs - elapsed;
+        }
+      }
+
+      updateProgressUI();
+    }
+
+    var left = Math.max(
+      0,
+      COOLDOWN - (Date.now() - lastPlace)
+    );
+
+    if (left > 0 && me) {
+      cdt.textContent =
+        "Кулдаун " + Math.ceil(left / 1000) + " с";
+    }
+
+    requestAnimationFrame(tick);
+  })();
+
+  // Первым делом показываем пустое поле и центрируем его.
+  // Интерфейс не ждёт, пока Render проснётся и ответит на API-запросы.
+  redraw();
+  refreshUserUI();
+  fit();
+  statusEl.textContent = "подключаемся к серверу...";
+
+  // Обновляем поле раз в 10 секунд, не накладывая запросы друг на друга.
+  var polling = false;
+  var pollingStarted = false;
+
+  async function refreshCanvas() {
+    if (polling || document.hidden) return;
+    polling = true;
+
+    try {
+      var data = await api("/api/canvas");
+      pixels = data.pixels || {};
+
+      if (typeof data.online === "number") {
+        lastOnline = data.online;
+      }
+
+      redraw();
+      statusEl.textContent = me
+        ? ("онлайн · " + me.nick)
+        : "онлайн · гость";
+    } catch (e) {
+      // Не стираем уже загруженное поле при временной сетевой ошибке.
+      if (!Object.keys(pixels).length) {
+        statusEl.textContent = "сервер пока не отвечает — поле доступно";
+      }
+    } finally {
+      polling = false;
+    }
+  }
+
+  function startPolling() {
+    if (pollingStarted) return;
+    pollingStarted = true;
+    setInterval(refreshCanvas, 10000);
+  }
+
+  // Аккаунт и игровое поле загружаются независимо друг от друга.
+  // Медленный запрос профиля не задерживает появление пикселей и наоборот.
+  async function boot() {
+    if (token) {
+      api("/api/me").then(function (data) {
+        me = data && data.user ? data.user : null;
+        refreshUserUI();
+        statusEl.textContent = me
+          ? ("онлайн · " + me.nick)
+          : "онлайн · гость";
+      }).catch(function (err) {
+        if (err.status === 401) {
+          token = "";
+          me = null;
+          localStorage.removeItem(TOKEN_KEY);
+          refreshUserUI();
+        }
+      });
+    }
+
+    await refreshCanvas();
+    startPolling();
+  }
+
+  // При изменении размеров доступной области пересчитываем масштаб
+  // и положение поля, чтобы оно не оставалось за пределами экрана.
+  window.addEventListener("resize", function () {
+    fit();
+  });
+
+  // Повторная подгонка после первичной раскладки браузера.
+  requestAnimationFrame(fit);
+  boot();
 })();
-async function boot() {
-try {
-if (token) {
-var meData = await api("/api/me");
-me = meData.user;
-}
-} catch (e) {
-token = ""; me = null;
-localStorage.removeItem(TOKEN_KEY);
-}
-refreshUserUI();
-try {
-var data = await api("/api/canvas");
-pixels = data.pixels || {};
-if (typeof data.online === "number") lastOnline = data.online;
-redraw();
-statusEl.textContent = me ? ("онлайн · " + me.nick) : "онлайн · гость";
-} catch (e) {
-statusEl.textContent = "сервер недоступен";
-redraw();
-}
-fit();
-setInterval(async function () {
-try {
-var data = await api("/api/canvas");
-pixels = data.pixels || {};
-if (typeof data.online === "number") lastOnline = data.online;
-redraw();
-} catch (e) {}
-}, 4000);
-}
-window.addEventListener("resize", function () { applyCam(); });
-boot();
-})();
-
-
+</script>
+</body>
+</html>

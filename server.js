@@ -15,11 +15,25 @@ const BASE_STAMINA = 30;
 const BASE_REGEN_MS = 25000;
 const XP_PER_PIXEL = 12;
 
-const DATA_DIR = path.join(__dirname, "data");
+// Для Render подключи Persistent Disk и задай DATA_DIR=/var/data.
+// Локально по умолчанию используется папка ./data.
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
 const USERS_FILE = path.join(DATA_DIR, "users.json");
 const CANVAS_FILE = path.join(DATA_DIR, "canvas.json");
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+
+// Переносим старые JSON-файлы из ./data в подключённый диск, если он ещё пустой.
+const LEGACY_DATA_DIR = path.join(__dirname, "data");
+if (path.resolve(LEGACY_DATA_DIR) !== path.resolve(DATA_DIR)) {
+  for (const name of ["users.json", "canvas.json"]) {
+    const oldFile = path.join(LEGACY_DATA_DIR, name);
+    const newFile = path.join(DATA_DIR, name);
+    if (fs.existsSync(oldFile) && !fs.existsSync(newFile)) {
+      fs.copyFileSync(oldFile, newFile);
+    }
+  }
+}
 
 function readJSON(file, fallback) {
   try {
@@ -31,7 +45,10 @@ function readJSON(file, fallback) {
 }
 
 function writeJSON(file, value) {
-  fs.writeFileSync(file, JSON.stringify(value), "utf8");
+  // Атомарная запись: при перезапуске процесса файл не останется наполовину записанным.
+  const temp = file + ".tmp";
+  fs.writeFileSync(temp, JSON.stringify(value), "utf8");
+  fs.renameSync(temp, file);
 }
 
 let store = readJSON(USERS_FILE, { users: {}, tokens: {} });

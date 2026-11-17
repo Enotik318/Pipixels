@@ -2,7 +2,7 @@
   "name": "pixel-battle",
   "version": "1.0.0",
   "private": true,
-  "description": "Shared pixel battle with accounts",
+  "description": "Shared pixel battle with persistent accounts and pixel canvas",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
