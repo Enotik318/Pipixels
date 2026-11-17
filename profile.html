@@ -52,11 +52,13 @@
     height: 40px; padding: 0 14px;
     border: 1px solid var(--line); border-radius: 12px;
     background: rgba(255,255,255,.03);
+    display: inline-flex; align-items: center; justify-content: center;
   }
   .btn:hover { background: rgba(255,255,255,.07); }
   .btn.pri {
     background: #fff; color: #111; border-color: #fff; font-weight: 600;
   }
+  .btn.pri:disabled { opacity: .6; cursor: wait; }
   .btn.danger {
     border-color: rgba(255,80,80,.35);
     color: #ff8a8a;
@@ -137,34 +139,22 @@
   }
   .row strong { display: block; font-size: 14px; font-weight: 600; margin-bottom: 2px; }
   .row em { display: block; font-style: normal; color: var(--mute); font-size: 12px; }
-  .row select, .row input[type="range"] {
-    min-width: 140px;
-  }
+  .row select, .row input[type="range"] { min-width: 140px; }
   .row select {
-    height: 36px;
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    background: rgba(0,0,0,.35);
-    padding: 0 10px;
+    height: 36px; border: 1px solid var(--line); border-radius: 10px;
+    background: rgba(0,0,0,.35); padding: 0 10px;
   }
   .row input[type="range"] {
-    -webkit-appearance: none;
-    appearance: none;
-    height: 6px;
-    border-radius: 99px;
-    background: rgba(255,255,255,.12);
+    -webkit-appearance: none; appearance: none; height: 6px;
+    border-radius: 99px; background: rgba(255,255,255,.12);
   }
   .row input[type="range"]::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    width: 16px; height: 16px; border-radius: 50%;
+    -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%;
     background: #fff; border: 0;
   }
   .val {
-    min-width: 36px;
-    text-align: right;
-    color: var(--mute);
-    font-variant-numeric: tabular-nums;
-    font-size: 12px;
+    min-width: 36px; text-align: right; color: var(--mute);
+    font-variant-numeric: tabular-nums; font-size: 12px;
   }
   .tg {
     position: relative; width: 50px; height: 30px; border: 0; border-radius: 999px;
@@ -186,9 +176,7 @@
     height: 32px; padding: 0 12px; border: 0; border-radius: 9px;
     background: transparent; color: var(--mute); font-size: 12px;
   }
-  .seg button.on {
-    background: #fff; color: #111; font-weight: 600;
-  }
+  .seg button.on { background: #fff; color: #111; font-weight: 600; }
 
   .tabs { display: flex; gap: 6px; margin-bottom: 14px; }
   .tabs button {
@@ -249,9 +237,9 @@
       <div class="top">
         <div class="brand">
           pixel battle
-          <span>профиль · аккаунт · настройки</span>
+          <span id="hostState">профиль · аккаунт · настройки</span>
         </div>
-        <a class="btn" href="index.html">К полю</a>
+        <a class="btn pri" href="index.html">← На поле</a>
       </div>
       <div class="stack">
         <section class="card" id="accountCard"></section>
@@ -276,14 +264,14 @@
   "use strict";
   const TOKEN_KEY = "pixelbattle.token.v1";
   const SETTINGS_KEY = "pixelbattle.settings.v1";
-  const API = ""; // API и сайт обслуживаются одним Express-сервером
+  const API = "";
 
   const DEFAULTS = {
     fx: true,
     sound: true,
     volume: 0.6,
     showHud: true,
-    showGrid: false,
+    showGrid: true,
     showCoords: true,
     autoCenter: true,
     reducedMotion: false,
@@ -316,29 +304,47 @@
     opts = opts || {};
     var headers = Object.assign({ "Content-Type": "application/json" }, opts.headers || {});
     if (token) headers.Authorization = "Bearer " + token;
-    var res = await fetch(API + path, {
-      method: opts.method || "GET",
-      headers: headers,
-      body: opts.body ? JSON.stringify(opts.body) : undefined
-    });
-    var data = null;
-    try { data = await res.json(); } catch (e) { data = null; }
-    if (!res.ok) {
-      var err = new Error((data && data.error) || ("Ошибка " + res.status));
-      err.status = res.status;
-      err.data = data;
-      throw err;
+
+    var controller = new AbortController();
+    var timer = setTimeout(function () { controller.abort(); }, opts.timeout || 35000);
+
+    try {
+      var res = await fetch(API + path, {
+        cache: "no-store",
+        method: opts.method || "GET",
+        headers: headers,
+        body: opts.body ? JSON.stringify(opts.body) : undefined,
+        signal: controller.signal
+      });
+      var data = null;
+      try { data = await res.json(); } catch (e) { data = null; }
+      if (!res.ok) {
+        var err = new Error((data && data.error) || ("Ошибка (" + res.status + ")"));
+        err.status = res.status;
+        err.data = data;
+        throw err;
+      }
+      return data;
+    } catch (e) {
+      if (e.name === "AbortError") {
+        throw new Error("Сервер долго просыпается, попробуй нажать ещё раз");
+      }
+      throw e;
+    } finally {
+      clearTimeout(timer);
     }
-    return data;
   }
 
   var accountCard = document.getElementById("accountCard");
   var statsCard = document.getElementById("statsCard");
   var settingsCard = document.getElementById("settingsCard");
   var extraCard = document.getElementById("extraCard");
+  var hostState = document.getElementById("hostState");
   var video = document.getElementById("bgVideo");
-  video.muted = true;
-  video.play().catch(function () {});
+  if (video) {
+    video.muted = true;
+    video.play().catch(function () {});
+  }
 
   function saveSettings() { saveJSON(SETTINGS_KEY, settings); }
 
@@ -375,8 +381,7 @@
         "<div class=\"row\"><div><strong>Подтверждать клик</strong><em>спросить перед пикселем</em></div><button type=\"button\" class=\"tg\" id=\"tgConfirm\"></button></div>" +
         "<div class=\"row\"><div><strong>Меньше анимаций</strong><em>щадит слабые устройства</em></div><button type=\"button\" class=\"tg\" id=\"tgMotion\"></button></div>" +
       "</div>" +
-      "<p class=\"ok\" id=\"saveNote\"></p>" +
-      "<p class=\"note\">Всё сохраняется в этом браузере и применяется на поле.</p>";
+      "<p class=\"ok\" id=\"saveNote\"></p>";
 
     bindTg("tgFx", "fx");
     bindTg("tgSound", "sound");
@@ -428,8 +433,7 @@
           "<div><strong>Сбросить настройки</strong><em>вернуть заводские</em></div>" +
           "<button type=\"button\" class=\"btn\" id=\"btnReset\">Сброс</button>" +
         "</div>" +
-      "</div>" +
-      "<p class=\"note\">Предфинал: эти тумблеры уже сохраняются. Часть визуала на поле подключим в следующем патче.</p>";
+      "</div>";
 
     function bindSeg(id, key) {
       var box = document.getElementById(id);
@@ -488,7 +492,7 @@
         "<div class=\"stat\"><b>" + (name ? since : "—") + "</b><span>с нами с</span></div>" +
       "</div>" +
       "<p class=\"stat-foot\">" + (name
-        ? "Стамина тратится на пиксели и растёт с уровнем. Реген сам."
+        ? "Стамина тратится на пиксели и восстанавливается автоматически."
         : "После входа здесь появятся твои цифры с сервера.") + "</p>";
 
     if (name) {
@@ -504,15 +508,16 @@
           "</div>" +
           "<div class=\"hero-meta\">" +
             "<b>" + name + "</b>" +
-            "<small><span class=\"dot\"></span>в сети · серверный аккаунт</small>" +
+            "<small><span class=\"dot\"></span>в сети · готов рисовать</small>" +
             "<div class=\"hero-actions\">" +
-              "<label class=\"btn\" style=\"display:grid;place-items:center;cursor:pointer\">Аватар<input id=\"avFile\" type=\"file\" accept=\"image/*\" hidden></label>" +
-              "<a class=\"btn pri\" href=\"index.html\">На поле</a>" +
+              "<a class=\"btn pri\" href=\"index.html\">Перейти к рисованию</a>" +
+              "<label class=\"btn\" style=\"margin:0;cursor:pointer\">Аватар<input id=\"avFile\" type=\"file\" accept=\"image/*\" hidden></label>" +
               "<button class=\"btn danger\" type=\"button\" id=\"logoutBtn\">Выйти</button>" +
             "</div>" +
           "</div>" +
         "</div>" +
-        "<p class=\"note\" id=\"avNote\">Можно поставить свой аватар (как в Farside). Пиксели и ник — на сервере.</p>";
+        "<p class=\"note\" id=\"avNote\">Ник и пиксели сохраняются на сервере.</p>";
+
       document.getElementById("logoutBtn").onclick = async function () {
         try { await api("/api/logout", { method: "POST" }); } catch (e) {}
         token = "";
@@ -520,6 +525,7 @@
         localStorage.removeItem(TOKEN_KEY);
         render();
       };
+
       document.getElementById("avFile").onchange = function (e) {
         var file = e.target.files && e.target.files[0];
         if (!file) return;
@@ -529,14 +535,8 @@
         }
         document.getElementById("avNote").textContent = "Загрузка аватара...";
         var reader = new FileReader();
-        reader.onerror = function () {
-          document.getElementById("avNote").textContent = "Не удалось прочитать файл";
-        };
         reader.onload = function () {
           var img = new Image();
-          img.onerror = function () {
-            document.getElementById("avNote").textContent = "Битая картинка";
-          };
           img.onload = async function () {
             try {
               var c = document.createElement("canvas");
@@ -554,7 +554,7 @@
               me = data.user;
               render();
             } catch (err) {
-              document.getElementById("avNote").textContent = (err && err.message) || "Сервер не принял аватар. Залей server.js заново.";
+              document.getElementById("avNote").textContent = (err && err.message) || "Ошибка загрузки аватара";
             }
           };
           img.src = reader.result;
@@ -572,74 +572,95 @@
         "</div>" +
         "<div class=\"hero-meta\">" +
           "<b>Гость</b>" +
-          "<small>войди, чтобы ставить пиксели на общем поле</small>" +
+          "<small>войди или создай аккаунт, чтобы рисовать на поле</small>" +
         "</div>" +
       "</div>" +
       "<div class=\"tabs\">" +
         "<button type=\"button\" class=\"on\" id=\"tabLogin\">Вход</button>" +
         "<button type=\"button\" id=\"tabReg\">Регистрация</button>" +
       "</div>" +
-      "<form id=\"authForm\" autocomplete=\"off\">" +
-        "<label>Ник<input id=\"authNick\" name=\"pb_nick_x\" maxlength=\"16\" autocomplete=\"off\" required value=\"\"></label>" +
-        "<label>Пароль<input id=\"authPass\" name=\"pb_pass_x\" type=\"password\" minlength=\"4\" autocomplete=\"new-password\" required value=\"\"></label>" +
+      "<form id=\"authForm\">" +
+        "<label>Ник (3–16 символов)<input id=\"authNick\" maxlength=\"16\" autocomplete=\"username\" required></label>" +
+        "<label>Пароль (от 4 символов)<input id=\"authPass\" type=\"password\" minlength=\"4\" autocomplete=\"current-password\" required></label>" +
         "<p class=\"err\" id=\"authErr\"></p>" +
-        "<button class=\"btn pri\" type=\"submit\" id=\"authSubmit\" style=\"width:100%\">Войти</button>" +
-      "</form>" +
-      "<p class=\"note\">Без аккаунта пиксели не ставятся. Данные на сервере Render.</p>";
-
-    setTimeout(function () {
-      var nEl = document.getElementById("authNick");
-      var pEl = document.getElementById("authPass");
-      if (nEl) nEl.value = "";
-      if (pEl) pEl.value = "";
-    }, 0);
+        "<button class=\"btn pri\" type=\"submit\" id=\"authSubmit\" style=\"width:100%\">Войти и рисовать</button>" +
+      "</form>";
 
     var mode = "login";
     document.getElementById("tabLogin").onclick = function () {
       mode = "login";
       this.classList.add("on");
       document.getElementById("tabReg").classList.remove("on");
-      document.getElementById("authSubmit").textContent = "Войти";
+      document.getElementById("authSubmit").textContent = "Войти и рисовать";
+      document.getElementById("authPass").autocomplete = "current-password";
       document.getElementById("authErr").textContent = "";
     };
     document.getElementById("tabReg").onclick = function () {
       mode = "register";
       this.classList.add("on");
       document.getElementById("tabLogin").classList.remove("on");
-      document.getElementById("authSubmit").textContent = "Создать аккаунт";
+      document.getElementById("authSubmit").textContent = "Создать аккаунт и рисовать";
+      document.getElementById("authPass").autocomplete = "new-password";
       document.getElementById("authErr").textContent = "";
     };
     document.getElementById("authForm").onsubmit = async function (e) {
       e.preventDefault();
-      var nickVal = document.getElementById("authNick").value;
+      var nickVal = document.getElementById("authNick").value.trim();
       var passVal = document.getElementById("authPass").value;
+      var btn = document.getElementById("authSubmit");
+      var errEl = document.getElementById("authErr");
+
+      errEl.textContent = "";
+      btn.disabled = true;
+      btn.textContent = "Подключаемся к серверу...";
+
       try {
         var data = await api(mode === "login" ? "/api/login" : "/api/register", {
           method: "POST",
-          body: { nick: nickVal, pass: passVal }
+          body: { nick: nickVal, pass: passVal },
+          timeout: 45000
         });
         token = data.token;
         me = data.user;
         localStorage.setItem(TOKEN_KEY, token);
-        render();
+        // Сразу перекидываем на поле, чтобы можно было рисовать
+        location.href = "index.html";
       } catch (err) {
-        document.getElementById("authErr").textContent = err.message || "Ошибка";
+        errEl.textContent = err.message || "Ошибка";
+        btn.disabled = false;
+        btn.textContent = mode === "login" ? "Войти и рисовать" : "Создать аккаунт и рисовать";
       }
     };
   }
 
   async function boot() {
+    render();
+    hostState.textContent = "будим сервер...";
+
+    for (var i = 0; i < 4; i++) {
+      try {
+        await api("/api/health", { timeout: 15000 });
+        hostState.textContent = "сервер онлайн · профиль и настройки";
+        break;
+      } catch (e) {
+        if (i === 3) hostState.textContent = "сервер пока спит — попробуй нажать Войти";
+      }
+    }
+
     if (token) {
       try {
         var data = await api("/api/me");
         me = data.user;
+        render();
       } catch (e) {
-        token = "";
-        me = null;
-        localStorage.removeItem(TOKEN_KEY);
+        if (e.status === 401) {
+          token = "";
+          me = null;
+          localStorage.removeItem(TOKEN_KEY);
+          render();
+        }
       }
     }
-    render();
   }
   boot();
 })();

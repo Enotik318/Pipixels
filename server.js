@@ -4,26 +4,26 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.PORT) || 3000;
+const HOST = "0.0.0.0";
 const W = 250;
 const H = 250;
 const COOLDOWN_MS = 1200;
 const TOKEN_TTL_MS = 1000 * 60 * 60 * 24 * 30;
 const ONLINE_MS = 1000 * 60 * 2;
-const MAX_REG_PER_IP_HOUR = 8;
+const MAX_REG_PER_IP_HOUR = 15;
 const BASE_STAMINA = 30;
 const BASE_REGEN_MS = 25000;
 const XP_PER_PIXEL = 12;
 
-// Для Render подключи Persistent Disk и задай DATA_DIR=/var/data.
-// Локально по умолчанию используется папка ./data.
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
 const USERS_FILE = path.join(DATA_DIR, "users.json");
 const CANVAS_FILE = path.join(DATA_DIR, "canvas.json");
 
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+}
 
-// Переносим старые JSON-файлы из ./data в подключённый диск, если он ещё пустой.
 const LEGACY_DATA_DIR = path.join(__dirname, "data");
 if (path.resolve(LEGACY_DATA_DIR) !== path.resolve(DATA_DIR)) {
   for (const name of ["users.json", "canvas.json"]) {
@@ -38,21 +38,32 @@ if (path.resolve(LEGACY_DATA_DIR) !== path.resolve(DATA_DIR)) {
 function readJSON(file, fallback) {
   try {
     if (!fs.existsSync(file)) return fallback;
-    return JSON.parse(fs.readFileSync(file, "utf8"));
-  } catch {
+    const raw = fs.readFileSync(file, "utf8");
+    return raw ? JSON.parse(raw) : fallback;
+  } catch (err) {
+    console.error("[readJSON]", file, err.message);
     return fallback;
   }
 }
 
 function writeJSON(file, value) {
-  // Атомарная запись: при перезапуске процесса файл не останется наполовину записанным.
-  const temp = file + ".tmp";
-  fs.writeFileSync(temp, JSON.stringify(value), "utf8");
-  fs.renameSync(temp, file);
+  try {
+    const temp = file + ".tmp";
+    fs.writeFileSync(temp, JSON.stringify(value), "utf8");
+    fs.renameSync(temp, file);
+  } catch (err) {
+    console.error("[writeJSON]", file, err.message);
+  }
 }
 
 let store = readJSON(USERS_FILE, { users: {}, tokens: {} });
+if (!store || typeof store !== "object") store = { users: {}, tokens: {} };
+if (!store.users) store.users = {};
+if (!store.tokens) store.tokens = {};
+
 let canvas = readJSON(CANVAS_FILE, {});
+if (!canvas || typeof canvas !== "object") canvas = {};
+
 const presence = {};
 const regByIp = {};
 
@@ -83,8 +94,7 @@ function dayKey() {
 function clientIp(req) {
   const xf = req.headers["x-forwarded-for"];
   if (typeof xf === "string" && xf.length > 0) {
-    const parts = xf.split(",");
-    return parts.at(0).trim();
+    return xf.split(",")[0].trim();
   }
   return req.socket.remoteAddress || "unknown";
 }
@@ -181,7 +191,7 @@ function onlineCount() {
 
 function getUserFromReq(req) {
   const header = req.headers.authorization || "";
-  const token = header.startsWith("Bearer ") ? header.slice(7) : "";
+  const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
   if (!token) return null;
   cleanTokens();
   const info = store.tokens[token];
@@ -223,22 +233,46 @@ function normalizeCell(val) {
 
 function badNick(nick) {
   const low = nick.toLowerCase();
-  if (/^\d+$/.test(nick)) return "Ник не может быть только из цифр";
-  if (/(.)\1{4,}/i.test(nick)) return "Слишком много одинаковых букв подряд";
+  if (/^\d+$/.test(nick)) return "Ник не может состоять только из цифр";
+  if (/(.)\1{4,}/i.test(nick)) return "Слишком много одинаковых символов подряд";
   const banned = ["admin", "moderator", "moder", "owner", "system"];
   for (const w of banned) {
-    if (low.includes(w)) return "Такой ник нельзя";
+    if (low.includes(w)) return "Такой ник зарезервирован";
   }
   return "";
 }
 
 const app = express();
+app.set("trust proxy", 1);
 app.use(cors());
 app.use(express.json({ limit: "512kb" }));
-app.use(express.static(__dirname));
+
+// Блокируем прямой доступ к исходникам и базе пользователей
+app.use((req, res, next) => {
+  const p = req.path.toLowerCase();
+  if (
+    p.startsWith("/data") ||
+    p === "/server.js" ||
+    p === "/package.json" ||
+    p === "/package-lock.json" ||
+    p.endsWith(".json") && !p.startsWith("/api/")
+  ) {
+    return res.status(404).end();
+  }
+  next();
+});
+
+app.use(express.static(__dirname, { index: "index.html" }));
 
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, w: W, h: H, pixels: Object.keys(canvas).length, online: onlineCount() });
+  res.json({
+    ok: true,
+    w: W,
+    h: H,
+    pixels: Object.keys(canvas).length,
+    online: onlineCount(),
+    ts: Date.now(),
+  });
 });
 
 app.get("/api/canvas", (req, res) => {
@@ -254,49 +288,62 @@ app.get("/api/canvas", (req, res) => {
 });
 
 app.post("/api/register", (req, res) => {
-  let nick = String(req.body?.nick || "").trim();
+  const nick = String(req.body?.nick || "").trim();
   const pass = String(req.body?.pass || "");
+
   if (nick.length < 3 || nick.length > 16) {
-    return res.status(400).json({ error: "Ник: 3–16 символов" });
+    return res.status(400).json({ error: "Ник должен быть от 3 до 16 символов" });
   }
   if (!/^[a-zA-Zа-яА-ЯёЁ0-9_]+$/.test(nick)) {
-    return res.status(400).json({ error: "Только буквы, цифры и _" });
+    return res.status(400).json({ error: "Только латиница, кириллица, цифры и _" });
   }
   const nickErr = badNick(nick);
   if (nickErr) return res.status(400).json({ error: nickErr });
-  if (pass.length < 4) return res.status(400).json({ error: "Пароль от 4 символов" });
+
+  if (pass.length < 4) {
+    return res.status(400).json({ error: "Пароль минимум 4 символа" });
+  }
 
   const ip = clientIp(req);
   const now = Date.now();
   regByIp[ip] = (regByIp[ip] || []).filter((t) => now - t < 60 * 60 * 1000);
   if (regByIp[ip].length >= MAX_REG_PER_IP_HOUR) {
-    return res.status(429).json({ error: "Слишком много регистраций с этого IP" });
+    return res.status(429).json({ error: "Слишком много регистраций, попробуйте позже" });
   }
 
   const taken = Object.keys(store.users).some((k) => k.toLowerCase() === nick.toLowerCase());
-  if (taken) return res.status(409).json({ error: "Ник занят" });
+  if (taken) {
+    return res.status(409).json({ error: "Этот ник уже занят" });
+  }
 
   const salt = crypto.randomBytes(8).toString("hex");
   store.users[nick] = {
     hash: hashPass(salt, pass),
     salt,
-    since: Date.now(),
+    since: now,
     avatar: "",
     stats: { n: 0, days: {}, last: 0 },
     lastPlace: 0,
-    progress: { xp: 0, stamina: BASE_STAMINA, staminaUpdatedAt: Date.now() },
+    progress: { xp: 0, stamina: BASE_STAMINA, staminaUpdatedAt: now },
   };
   regByIp[ip].push(now);
+
   const token = makeToken();
-  store.tokens[token] = { nick, exp: Date.now() + TOKEN_TTL_MS };
+  store.tokens[token] = { nick, exp: now + TOKEN_TTL_MS };
   saveUsers();
   touchPresence(nick);
+
   res.json({ token, user: publicUser(nick, store.users[nick]) });
 });
 
 app.post("/api/login", (req, res) => {
   const nickIn = String(req.body?.nick || "").trim();
   const pass = String(req.body?.pass || "");
+
+  if (!nickIn || !pass) {
+    return res.status(400).json({ error: "Введите ник и пароль" });
+  }
+
   let found = null;
   for (const k of Object.keys(store.users)) {
     if (k.toLowerCase() === nickIn.toLowerCase()) {
@@ -304,15 +351,20 @@ app.post("/api/login", (req, res) => {
       break;
     }
   }
-  if (!found) return res.status(401).json({ error: "Неверный ник или пароль" });
+  if (!found) {
+    return res.status(401).json({ error: "Неверный ник или пароль" });
+  }
+
   const user = store.users[found];
   if (hashPass(user.salt, pass) !== user.hash) {
     return res.status(401).json({ error: "Неверный ник или пароль" });
   }
+
   const token = makeToken();
   store.tokens[token] = { nick: found, exp: Date.now() + TOKEN_TTL_MS };
   saveUsers();
   touchPresence(found);
+
   res.json({ token, user: publicUser(found, user) });
 });
 
@@ -327,7 +379,7 @@ app.get("/api/me", (req, res) => {
 
 app.post("/api/logout", (req, res) => {
   const header = req.headers.authorization || "";
-  const token = header.startsWith("Bearer ") ? header.slice(7) : "";
+  const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
   if (token && store.tokens[token]) {
     const nick = store.tokens[token].nick;
     delete store.tokens[token];
@@ -340,7 +392,7 @@ app.post("/api/logout", (req, res) => {
 app.post("/api/avatar", (req, res) => {
   const session = getUserFromReq(req);
   if (!session) return res.status(401).json({ error: "Нужен вход" });
-  let avatar = String(req.body?.avatar || "");
+  const avatar = String(req.body?.avatar || "");
   if (avatar && !avatar.startsWith("data:image/")) {
     return res.status(400).json({ error: "Нужна картинка (data URL)" });
   }
@@ -358,81 +410,91 @@ app.post("/api/pixel", (req, res) => {
   if (!session) {
     return res.status(401).json({ error: "Нужен аккаунт, чтобы ставить пиксели" });
   }
+
   const x = Number(req.body?.x);
   const y = Number(req.body?.y);
-  let color = String(req.body?.color || "").toLowerCase();
+  const color = String(req.body?.color || "").toLowerCase();
+
   if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || y < 0 || x >= W || y >= H) {
     return res.status(400).json({ error: "Неверные координаты" });
   }
   if (!/^#[0-9a-f]{6}$/.test(color)) {
+    return res.status(400).json({ error: "Неверный цвет" });
+  }
 
-return res.status(400).json({ error: "Неверный цвет" });
-}
-const key = x + "," + y;
-const prev = normalizeCell(canvas[key]);
-const currentColor = prev ? prev.color : "#ffffff";
-if (currentColor === color) {
-return res.json({
-ok: true,
-unchanged: true,
-pixels: canvas,
-online: onlineCount(),
-user: publicUser(session.nick, session.user),
+  const key = x + "," + y;
+  const prev = normalizeCell(canvas[key]);
+  const currentColor = prev ? prev.color : "#ffffff";
+
+  if (currentColor === color) {
+    return res.json({
+      ok: true,
+      unchanged: true,
+      pixels: canvas,
+      online: onlineCount(),
+      user: publicUser(session.nick, session.user),
+    });
+  }
+
+  const now = Date.now();
+  const waitCd = COOLDOWN_MS - (now - (session.user.lastPlace || 0));
+  if (waitCd > 0) {
+    return res.status(429).json({ error: "Кулдаун", wait: waitCd });
+  }
+
+  const prog = syncStamina(session.user);
+  if (prog.stamina < 1) {
+    return res.status(429).json({
+      error: "Нет стамины",
+      wait: prog.nextIn,
+      user: publicUser(session.nick, session.user),
+    });
+  }
+
+  const p = ensureProgress(session.user);
+  p.stamina = Math.max(0, prog.stamina - 1);
+  p.staminaUpdatedAt = now;
+  p.xp = (p.xp || 0) + XP_PER_PIXEL;
+
+  canvas[key] = { color, by: session.nick, at: now };
+  session.user.lastPlace = now;
+
+  const day = dayKey();
+  if (!session.user.stats) session.user.stats = { n: 0, days: {}, last: 0 };
+  session.user.stats.days = session.user.stats.days || {};
+  session.user.stats.n = (session.user.stats.n || 0) + 1;
+  session.user.stats.days[day] = (session.user.stats.days[day] || 0) + 1;
+  session.user.stats.last = now;
+
+  saveCanvas();
+  saveUsers();
+  touchPresence(session.nick);
+
+  res.json({
+    ok: true,
+    x,
+    y,
+    color,
+    by: session.nick,
+    pixels: canvas,
+    online: onlineCount(),
+    user: publicUser(session.nick, session.user),
+  });
 });
-}
-const now = Date.now();
-const waitCd = COOLDOWN_MS - (now - (session.user.lastPlace || 0));
-if (waitCd > 0) {
-return res.status(429).json({ error: "Кулдаун", wait: waitCd });
-}
-const prog = syncStamina(session.user);
-if (prog.stamina < 1) {
-return res.status(429).json({
-error: "Нет стамины",
-wait: prog.nextIn,
-user: publicUser(session.nick, session.user),
-});
-}
-const p = ensureProgress(session.user);
-p.stamina = Math.max(0, prog.stamina - 1);
-p.staminaUpdatedAt = now;
-p.xp = (p.xp || 0) + XP_PER_PIXEL;
-canvas[key] = { color, by: session.nick, at: now };
-session.user.lastPlace = now;
-const day = dayKey();
-if (!session.user.stats) session.user.stats = { n: 0, days: {}, last: 0 };
-session.user.stats.days = session.user.stats.days || {};
-session.user.stats.n = (session.user.stats.n || 0) + 1;
-session.user.stats.days[day] = (session.user.stats.days[day] || 0) + 1;
-session.user.stats.last = now;
-saveCanvas();
-saveUsers();
-touchPresence(session.nick);
-res.json({
-ok: true,
-x,
-y,
-color,
-by: session.nick,
-pixels: canvas,
-online: onlineCount(),
-user: publicUser(session.nick, session.user),
-});
-});
+
 app.get("/favicon.svg", (_req, res) => {
-const svg = [
-'',
-'',
-'',
-'',
-'',
-'',
-'',
-''
-].join("");
-res.type("image/svg+xml").send(svg);
+  const svg =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">' +
+    '<rect width="16" height="16" rx="4" fill="#111115"/>' +
+    '<rect x="3" y="3" width="5" height="5" fill="#ff3b4e"/>' +
+    '<rect x="8" y="3" width="5" height="5" fill="#ffc62e"/>' +
+    '<rect x="3" y="8" width="5" height="5" fill="#38a3ff"/>' +
+    '<rect x="8" y="8" width="5" height="5" fill="#2dce89"/>' +
+    "</svg>";
+  res.type("image/svg+xml").send(svg);
 });
-app.listen(PORT, () => {
-console.log("[pixel-battle] " + W + "x" + H + " on http://127.0.0.1:" + PORT);
-console.log("[pixel-battle] pixels: " + Object.keys(canvas).length);
+
+app.listen(PORT, HOST, () => {
+  console.log(`[pixel-battle] ${W}x${H} listening on http://${HOST}:${PORT}`);
+  console.log(`[pixel-battle] data dir: ${DATA_DIR}, pixels: ${Object.keys(canvas).length}`);
 });
