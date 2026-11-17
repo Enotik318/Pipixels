@@ -3,7 +3,11 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>Pixel Battle</title>
+<title>Pixel Battle — общее поле 250×250</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<meta name="description" content="Общее пиксельное поле. Регистрируйся и рисуй вместе со всеми." />
+<meta property="og:title" content="Pixel Battle" />
+<meta property="og:description" content="Общее поле 250×250. Заходи и ставь пиксели." />
 <style>
   :root {
     --bg: #08080a;
@@ -199,7 +203,7 @@
   }
   .stat b { display: block; font-size: 18px; font-variant-numeric: tabular-nums; }
   .stat span { color: var(--mute); font-size: 11px; }
-  .tools { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+  .tools { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .tools button.on { background: #fff; color: #111; border-color: #fff; }
   .tools button {
     height: 40px; border: 1px solid var(--line);
@@ -232,7 +236,7 @@
 
   <aside id="side">
     <div class="head">
-      <div class="logo">pixel battle<small>250×250 · online</small></div>
+      <div class="logo">pixel battle<small id="logoSub">250×250 · онлайн</small></div>
       <a class="ib" href="profile.html" title="Профиль"><span class="av" id="avatar">?</span></a>
     </div>
     <div class="body">
@@ -259,9 +263,13 @@
         </div>
       </section>
       <section>
-        <h2>Кулдаун</h2>
+        <h2>Стамина</h2>
         <div class="bar"><i id="cdbar"></i></div>
-        <p id="cdt">Можно ставить</p>
+        <p id="cdt">—</p>
+        <div class="stats" style="margin-top:10px">
+          <div class="stat"><b id="lvl">1</b><span>уровень</span></div>
+          <div class="stat"><b id="stam">30/30</b><span>стамина</span></div>
+        </div>
       </section>
       <section>
         <h2>Поле</h2>
@@ -275,6 +283,7 @@
           <button type="button" id="btnCenter">Центр</button>
           <button type="button" id="btnGrid">Сетка</button>
           <button type="button" id="btnPng">PNG</button>
+          <button type="button" id="btnShare">Ссылка</button>
         </div>
       </section>
     </div>
@@ -285,7 +294,7 @@
   "use strict";
   const W = 250;
   const H = 250;
-  const COOLDOWN = 2000;
+  const COOLDOWN = 1200;
   const TOKEN_KEY = "pixelbattle.token.v1";
   const SETTINGS_KEY = "pixelbattle.settings.v1";
   const API = (location.hostname.indexOf("onrender.com") !== -1) ? "" : "https://pipixels.onrender.com";
@@ -331,6 +340,7 @@
     showHud: true, showCoords: true, showGrid: false, reducedMotion: false, confirmPlace: false
   }, loadJSON(SETTINGS_KEY, {}));
   var pixels = {};
+  var lastOnline = 0;
   var color = "#111111", HH = 0, SS = 0, VV = 0.07;
   var lastPlace = 0, camX = 0, camY = 0, scale = 1;
   var placing = false;
@@ -393,6 +403,24 @@
     hud.style.display = settings.showCoords === false ? "none" : "";
   }
 
+  function updateProgressUI() {
+    var prog = me && me.progress ? me.progress : null;
+    var lvlEl = document.getElementById("lvl");
+    var stamEl = document.getElementById("stam");
+    if (!prog) {
+      if (lvlEl) lvlEl.textContent = "—";
+      if (stamEl) stamEl.textContent = "—";
+      cdbar.style.transform = "scaleX(0)";
+      cdt.textContent = me ? "…" : "войди, чтобы рисовать";
+      return;
+    }
+    if (lvlEl) lvlEl.textContent = String(prog.level || 1);
+    if (stamEl) stamEl.textContent = (prog.stamina || 0) + "/" + (prog.staminaMax || 30);
+    var ratio = prog.staminaMax ? (prog.stamina / prog.staminaMax) : 0;
+    cdbar.style.transform = "scaleX(" + Math.max(0, Math.min(1, ratio)) + ")";
+    if (prog.stamina >= 1) cdt.textContent = "Можно ставить";
+    else cdt.textContent = "Восстановление " + Math.ceil((prog.nextIn || 0) / 1000) + " с";
+  }
   function refreshUserUI() {
     var name = me ? me.nick : "";
     var av = me && me.avatar ? me.avatar : "";
@@ -401,6 +429,7 @@
     document.getElementById("sideName").textContent = name || "Гость";
     document.getElementById("sideSub").textContent = name ? "онлайн · профиль →" : "войти в профиле";
     applyUiSettings();
+    updateProgressUI();
   }
 
   function redraw() {
@@ -437,11 +466,16 @@
     var keys = Object.keys(pixels);
     for (var i = 0; i < keys.length; i++) {
       var parts = keys[i].split(",");
-      ctx.fillStyle = pixels[keys[i]];
+      var cell = pixels[keys[i]];
+      ctx.fillStyle = (cell && cell.color) ? cell.color : cell;
       ctx.fillRect(+parts[0], +parts[1], 1, 1);
     }
     paintedEl.textContent = fmt(keys.length);
     fillEl.textContent = ((keys.length / (W * H)) * 100).toFixed(2).replace(".", ",") + "%";
+    var onlineEl = document.getElementById("logoSub");
+    if (onlineEl && typeof lastOnline === "number") {
+      onlineEl.textContent = "250×250 · " + lastOnline + " онлайн";
+    }
   }
 
   function applyCam() {
@@ -607,7 +641,8 @@
     if (placing) return;
     if (Date.now() - lastPlace < COOLDOWN) return;
     var key = x + "," + y;
-    if (pixels[key] === color) return;
+    var prevCell = pixels[key]; var prevColor = prevCell && prevCell.color ? prevCell.color : prevCell;
+if (prevColor === color) return;
 
     placing = true;
     statusEl.textContent = "отправка...";
@@ -616,7 +651,10 @@
       lastPlace = Date.now();
       if (data.pixels) pixels = data.pixels;
       else pixels[key] = color;
-      if (data.user) me = data.user;
+      if (data.user) {
+        me = data.user;
+        if (me.progress) me.progress._localAt = Date.now();
+      }
       redraw();
       refreshUserUI();
       beep();
@@ -650,7 +688,12 @@
   });
   view.addEventListener("pointermove", function (e) {
     var c = cellFromEvent(e);
-    hud.textContent = c ? (c[0] + ", " + c[1]) : "—";
+    if (!c) { hud.textContent = "—"; }
+    else {
+      var cell = pixels[c[0] + "," + c[1]];
+      var by = cell && cell.by ? cell.by : "";
+      hud.textContent = by ? (c[0] + ", " + c[1] + " · " + by) : (c[0] + ", " + c[1]);
+    }
     if (!drag) return;
     var dx = e.clientX - drag.x, dy = e.clientY - drag.y;
     if (Math.hypot(dx, dy) > 4) moved = true;
@@ -696,6 +739,23 @@
     syncGridBtn();
     redraw();
   };
+  document.getElementById("btnShare").onclick = async function () {
+    var url = location.origin + "/";
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(url);
+      } else {
+        prompt("Ссылка на поле:", url);
+        return;
+      }
+      statusEl.textContent = "ссылка скопирована";
+      setTimeout(function () {
+        statusEl.textContent = me ? ("онлайн · " + me.nick) : "онлайн · гость";
+      }, 1500);
+    } catch (e) {
+      prompt("Ссылка на поле:", url);
+    }
+  };
   document.getElementById("btnPng").onclick = function () {
     var s = 2;
     var out = document.createElement("canvas");
@@ -714,9 +774,27 @@
   };
 
   (function tick() {
+    if (me && me.progress) {
+      var p = me.progress;
+      if (p.stamina < p.staminaMax && p.regenMs) {
+        var now = Date.now();
+        if (!p._localAt) p._localAt = now;
+        var elapsed = now - p._localAt;
+        if (elapsed >= p.regenMs) {
+          var gain = Math.floor(elapsed / p.regenMs);
+          p.stamina = Math.min(p.staminaMax, p.stamina + gain);
+          p._localAt += gain * p.regenMs;
+          p.nextIn = p.stamina >= p.staminaMax ? 0 : (p.regenMs - (now - p._localAt));
+        } else {
+          p.nextIn = p.regenMs - elapsed;
+        }
+      }
+      updateProgressUI();
+    }
     var left = Math.max(0, COOLDOWN - (Date.now() - lastPlace));
-    cdbar.style.transform = "scaleX(" + (1 - left / COOLDOWN) + ")";
-    cdt.textContent = left ? ("Через " + Math.ceil(left / 1000) + " с") : "Можно ставить";
+    if (left > 0 && me) {
+      cdt.textContent = "Кулдаун " + Math.ceil(left / 1000) + " с";
+    }
     requestAnimationFrame(tick);
   })();
 
@@ -734,6 +812,7 @@
     try {
       var data = await api("/api/canvas");
       pixels = data.pixels || {};
+      if (typeof data.online === "number") lastOnline = data.online;
       redraw();
       statusEl.textContent = me ? ("онлайн · " + me.nick) : "онлайн · гость";
     } catch (e) {
@@ -745,6 +824,7 @@
       try {
         var data = await api("/api/canvas");
         pixels = data.pixels || {};
+        if (typeof data.online === "number") lastOnline = data.online;
         redraw();
       } catch (e) {}
     }, 4000);

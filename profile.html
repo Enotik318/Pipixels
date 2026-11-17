@@ -4,6 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>Профиль — Pixel Battle</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 <style>
   :root {
     --bg: #050506;
@@ -472,16 +473,22 @@
     var n = me && me.stats ? me.stats.n : 0;
     var day = me && me.stats ? me.stats.today : 0;
     var since = me && me.since ? new Date(me.since).toLocaleDateString("ru") : "—";
+    var lvl = me && me.progress ? me.progress.level : "—";
+    var stam = me && me.progress ? (me.progress.stamina + "/" + me.progress.staminaMax) : "—";
 
     statsCard.innerHTML =
       "<h2>Статистика</h2>" +
       "<div class=\"stats\">" +
         "<div class=\"stat\"><b>" + fmt(n) + "</b><span>всего пикселей</span></div>" +
         "<div class=\"stat\"><b>" + fmt(day) + "</b><span>сегодня</span></div>" +
+        "<div class=\"stat\"><b>" + lvl + "</b><span>уровень</span></div>" +
+      "</div>" +
+      "<div class=\"stats\" style=\"margin-top:10px\">" +
+        "<div class=\"stat\"><b>" + stam + "</b><span>стамина</span></div>" +
         "<div class=\"stat\"><b>" + (name ? since : "—") + "</b><span>с нами с</span></div>" +
       "</div>" +
       "<p class=\"stat-foot\">" + (name
-        ? "Сервер считает каждый успешный пиксель на общем поле."
+        ? "Стамина тратится на пиксели и растёт с уровнем. Реген сам."
         : "После входа здесь появятся твои цифры с сервера.") + "</p>";
 
     if (name) {

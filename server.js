@@ -7,8 +7,14 @@ const path = require("path");
 const PORT = process.env.PORT || 3000;
 const W = 250;
 const H = 250;
-const COOLDOWN_MS = 2000;
+const COOLDOWN_MS = 1200;
 const TOKEN_TTL_MS = 1000 * 60 * 60 * 24 * 30;
+const ONLINE_MS = 1000 * 60 * 2;
+const MAX_REG_PER_IP_HOUR = 8;
+const BASE_STAMINA = 30;
+const BASE_REGEN_MS = 25000;
+const XP_PER_PIXEL = 12;
+
 const DATA_DIR = path.join(__dirname, "data");
 const USERS_FILE = path.join(DATA_DIR, "users.json");
 const CANVAS_FILE = path.join(DATA_DIR, "canvas.json");
@@ -29,6 +35,8 @@ function writeJSON(file, value) {
 
 let store = readJSON(USERS_FILE, { users: {}, tokens: {} });
 let canvas = readJSON(CANVAS_FILE, {});
+const presence = {};
+const regByIp = {};
 
 function saveUsers() { writeJSON(USERS_FILE, store); }
 function saveCanvas() { writeJSON(CANVAS_FILE, canvas); }
@@ -42,6 +50,76 @@ function hashPass(salt, pass) {
 function makeToken() {
   return crypto.randomBytes(24).toString("hex");
 }
+function dayKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+function clientIp(req) {
+  const xf = req.headers["x-forwarded-for"];
+  if (typeof xf === "string" && xf.length) return xf.split(",")[0].trim();
+  return req.socket.remoteAddress || "unknown";
+}
+
+function levelFromXp(xp) {
+  xp = Math.max(0, Number(xp) || 0);
+  return Math.floor(Math.sqrt(xp / 50)) + 1;
+}
+function xpToNext(level) {
+  const L = Math.max(1, level);
+  const need = 50 * L * L;
+  const prev = 50 * (L - 1) * (L - 1);
+  return { need, prev, into: need - prev };
+}
+function maxStamina(level) {
+  return BASE_STAMINA + Math.max(0, level - 1) * 3;
+}
+function regenMs(level) {
+  return Math.max(12000, BASE_REGEN_MS - Math.max(0, level - 1) * 800);
+}
+
+function ensureProgress(user) {
+  if (!user.progress) {
+    user.progress = {
+      xp: 0,
+      stamina: BASE_STAMINA,
+      staminaUpdatedAt: Date.now(),
+    };
+  }
+  if (typeof user.progress.xp !== "number") user.progress.xp = 0;
+  if (typeof user.progress.stamina !== "number") user.progress.stamina = BASE_STAMINA;
+  if (typeof user.progress.staminaUpdatedAt !== "number") {
+    user.progress.staminaUpdatedAt = Date.now();
+  }
+  return user.progress;
+}
+
+function syncStamina(user) {
+  const p = ensureProgress(user);
+  const level = levelFromXp(p.xp);
+  const max = maxStamina(level);
+  const regen = regenMs(level);
+  const now = Date.now();
+  if (p.stamina < max) {
+    const gained = Math.floor((now - p.staminaUpdatedAt) / regen);
+    if (gained > 0) {
+      p.stamina = Math.min(max, p.stamina + gained);
+      p.staminaUpdatedAt += gained * regen;
+    }
+  } else {
+    p.stamina = max;
+    p.staminaUpdatedAt = now;
+  }
+  const nextIn = p.stamina >= max ? 0 : Math.max(0, regen - (now - p.staminaUpdatedAt));
+  return {
+    level,
+    xp: p.xp,
+    stamina: p.stamina,
+    staminaMax: max,
+    regenMs: regen,
+    nextIn,
+    ...xpToNext(level),
+  };
+}
+
 function cleanTokens() {
   const now = Date.now();
   let changed = false;
@@ -53,6 +131,20 @@ function cleanTokens() {
   }
   if (changed) saveUsers();
 }
+
+function touchPresence(nick) {
+  if (nick) presence[nick] = Date.now();
+}
+function onlineCount() {
+  const now = Date.now();
+  let n = 0;
+  for (const [nick, ts] of Object.entries(presence)) {
+    if (now - ts <= ONLINE_MS) n += 1;
+    else delete presence[nick];
+  }
+  return n;
+}
+
 function getUserFromReq(req) {
   const header = req.headers.authorization || "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : "";
@@ -64,9 +156,11 @@ function getUserFromReq(req) {
   if (!user) return null;
   return { nick: info.nick, user, token };
 }
+
 function publicUser(nick, user) {
   const stats = user.stats || { n: 0, days: {}, last: 0 };
-  const day = new Date().toISOString().slice(0, 10);
+  const day = dayKey();
+  const prog = syncStamina(user);
   return {
     nick,
     since: user.since || 0,
@@ -76,7 +170,28 @@ function publicUser(nick, user) {
       today: (stats.days && stats.days[day]) || 0,
       last: stats.last || 0,
     },
+    progress: prog,
   };
+}
+
+function normalizeCell(val) {
+  if (!val) return null;
+  if (typeof val === "string") return { color: val, by: "", at: 0 };
+  if (typeof val === "object" && val.color) {
+    return { color: String(val.color), by: String(val.by || ""), at: Number(val.at || 0) };
+  }
+  return null;
+}
+
+function badNick(nick) {
+  const low = nick.toLowerCase();
+  if (/^\d+$/.test(nick)) return "Ник не может быть только из цифр";
+  if (/(.)\1{4,}/i.test(nick)) return "Слишком много одинаковых букв подряд";
+  const banned = ["admin", "moderator", "moder", "owner", "system"];
+  for (const w of banned) {
+    if (low.includes(w)) return "Такой ник нельзя";
+  }
+  return "";
 }
 
 const app = express();
@@ -85,28 +200,42 @@ app.use(express.json({ limit: "512kb" }));
 app.use(express.static(__dirname));
 
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, w: W, h: H, pixels: Object.keys(canvas).length });
+  res.json({ ok: true, w: W, h: H, pixels: Object.keys(canvas).length, online: onlineCount() });
 });
 
-app.get("/api/canvas", (_req, res) => {
-  res.json({ w: W, h: H, pixels: canvas });
+app.get("/api/canvas", (req, res) => {
+  const session = getUserFromReq(req);
+  if (session) touchPresence(session.nick);
+  res.json({
+    w: W,
+    h: H,
+    pixels: canvas,
+    online: onlineCount(),
+    painted: Object.keys(canvas).length,
+  });
 });
 
 app.post("/api/register", (req, res) => {
   let nick = String(req.body?.nick || "").trim();
   const pass = String(req.body?.pass || "");
-  if (nick.length < 2 || nick.length > 16) {
-    return res.status(400).json({ error: "Ник: 2–16 символов" });
+  if (nick.length < 3 || nick.length > 16) {
+    return res.status(400).json({ error: "Ник: 3–16 символов" });
   }
   if (!/^[a-zA-Zа-яА-ЯёЁ0-9_]+$/.test(nick)) {
     return res.status(400).json({ error: "Только буквы, цифры и _" });
   }
-  if (pass.length < 4) {
-    return res.status(400).json({ error: "Пароль от 4 символов" });
+  const nickErr = badNick(nick);
+  if (nickErr) return res.status(400).json({ error: nickErr });
+  if (pass.length < 4) return res.status(400).json({ error: "Пароль от 4 символов" });
+
+  const ip = clientIp(req);
+  const now = Date.now();
+  regByIp[ip] = (regByIp[ip] || []).filter((t) => now - t < 60 * 60 * 1000);
+  if (regByIp[ip].length >= MAX_REG_PER_IP_HOUR) {
+    return res.status(429).json({ error: "Слишком много регистраций с этого IP" });
   }
-  const taken = Object.keys(store.users).some(
-    (k) => k.toLowerCase() === nick.toLowerCase()
-  );
+
+  const taken = Object.keys(store.users).some((k) => k.toLowerCase() === nick.toLowerCase());
   if (taken) return res.status(409).json({ error: "Ник занят" });
 
   const salt = crypto.randomBytes(8).toString("hex");
@@ -117,10 +246,13 @@ app.post("/api/register", (req, res) => {
     avatar: "",
     stats: { n: 0, days: {}, last: 0 },
     lastPlace: 0,
+    progress: { xp: 0, stamina: BASE_STAMINA, staminaUpdatedAt: Date.now() },
   };
+  regByIp[ip].push(now);
   const token = makeToken();
   store.tokens[token] = { nick, exp: Date.now() + TOKEN_TTL_MS };
   saveUsers();
+  touchPresence(nick);
   res.json({ token, user: publicUser(nick, store.users[nick]) });
 });
 
@@ -129,10 +261,7 @@ app.post("/api/login", (req, res) => {
   const pass = String(req.body?.pass || "");
   let found = null;
   for (const k of Object.keys(store.users)) {
-    if (k.toLowerCase() === nickIn.toLowerCase()) {
-      found = k;
-      break;
-    }
+    if (k.toLowerCase() === nickIn.toLowerCase()) { found = k; break; }
   }
   if (!found) return res.status(401).json({ error: "Неверный ник или пароль" });
   const user = store.users[found];
@@ -142,20 +271,26 @@ app.post("/api/login", (req, res) => {
   const token = makeToken();
   store.tokens[token] = { nick: found, exp: Date.now() + TOKEN_TTL_MS };
   saveUsers();
+  touchPresence(found);
   res.json({ token, user: publicUser(found, user) });
 });
 
 app.get("/api/me", (req, res) => {
   const session = getUserFromReq(req);
   if (!session) return res.status(401).json({ error: "Нужен вход" });
-  res.json({ user: publicUser(session.nick, session.user) });
+  touchPresence(session.nick);
+  const userPayload = publicUser(session.nick, session.user);
+  saveUsers();
+  res.json({ user: userPayload });
 });
 
 app.post("/api/logout", (req, res) => {
   const header = req.headers.authorization || "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : "";
   if (token && store.tokens[token]) {
+    const nick = store.tokens[token].nick;
     delete store.tokens[token];
+    if (nick) delete presence[nick];
     saveUsers();
   }
   res.json({ ok: true });
@@ -173,6 +308,7 @@ app.post("/api/avatar", (req, res) => {
   }
   session.user.avatar = avatar;
   saveUsers();
+  touchPresence(session.nick);
   res.json({ user: publicUser(session.nick, session.user) });
 });
 
@@ -190,25 +326,54 @@ app.post("/api/pixel", (req, res) => {
   if (!/^#[0-9a-f]{6}$/.test(color)) {
     return res.status(400).json({ error: "Неверный цвет" });
   }
+
   const now = Date.now();
-  const wait = COOLDOWN_MS - (now - (session.user.lastPlace || 0));
-  if (wait > 0) {
-    return res.status(429).json({ error: "Кулдаун", wait });
+  const waitCd = COOLDOWN_MS - (now - (session.user.lastPlace || 0));
+  if (waitCd > 0) {
+    return res.status(429).json({ error: "Кулдаун", wait: waitCd });
   }
+
+  const prog = syncStamina(session.user);
+  if (prog.stamina < 1) {
+    return res.status(429).json({
+      error: "Нет стамины",
+      wait: prog.nextIn,
+      user: publicUser(session.nick, session.user),
+    });
+  }
+
   const key = x + "," + y;
-  if (canvas[key] === color) {
-    return res.json({ ok: true, unchanged: true, pixels: canvas });
+  const prev = normalizeCell(canvas[key]);
+  if (prev && prev.color === color && prev.by === session.nick) {
+    return res.json({
+      ok: true,
+      unchanged: true,
+      pixels: canvas,
+      online: onlineCount(),
+      user: publicUser(session.nick, session.user),
+    });
   }
-  canvas[key] = color;
+
+  // spend stamina
+  const p = ensureProgress(session.user);
+  p.stamina = Math.max(0, prog.stamina - 1);
+  p.staminaUpdatedAt = now;
+  p.xp = (p.xp || 0) + XP_PER_PIXEL;
+
+  canvas[key] = { color, by: session.nick, at: now };
   session.user.lastPlace = now;
-  const day = new Date().toISOString().slice(0, 10);
+
+  const day = dayKey();
   if (!session.user.stats) session.user.stats = { n: 0, days: {}, last: 0 };
-  session.user.stats.n = (session.user.stats.n || 0) + 1;
   session.user.stats.days = session.user.stats.days || {};
+  session.user.stats.n = (session.user.stats.n || 0) + 1;
   session.user.stats.days[day] = (session.user.stats.days[day] || 0) + 1;
   session.user.stats.last = now;
+
   saveCanvas();
   saveUsers();
+  touchPresence(session.nick);
+
   res.json({
     ok: true,
     x,
@@ -216,8 +381,20 @@ app.post("/api/pixel", (req, res) => {
     color,
     by: session.nick,
     pixels: canvas,
+    online: onlineCount(),
     user: publicUser(session.nick, session.user),
   });
+});
+
+app.get("/favicon.svg", (_req, res) => {
+  res.type("image/svg+xml").send(`<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="14" fill="#111"/>
+  <rect x="12" y="12" width="16" height="16" fill="#fff"/>
+  <rect x="36" y="12" width="16" height="16" fill="#ff3b4e"/>
+  <rect x="12" y="36" width="16" height="16" fill="#38a3ff"/>
+  <rect x="36" y="36" width="16" height="16" fill="#2dce89"/>
+</svg>`);
 });
 
 app.listen(PORT, () => {
