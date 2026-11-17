@@ -71,6 +71,14 @@
     position: relative;
     z-index: 1;
   }
+  #gridCv {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 2;
+  }
   .fx { position: absolute; pointer-events: none; z-index: 5; }
   #hud, #status, #zoom {
     border: 1px solid var(--line);
@@ -222,6 +230,7 @@
       <div class="board">
         <div class="board-inner">
           <canvas id="cv" width="250" height="250"></canvas>
+          <canvas id="gridCv"></canvas>
         </div>
       </div>
     </div>
@@ -279,7 +288,7 @@
         </div>
       </section>
       <section>
-        <div class="tools">
+               <div class="tools">
           <button type="button" id="btnCenter">Центр</button>
           <button type="button" id="btnGrid">Сетка</button>
           <button type="button" id="btnPng">PNG</button>
@@ -288,7 +297,6 @@
       </section>
     </div>
   </aside>
-
 <script>
 (function () {
   "use strict";
@@ -297,7 +305,7 @@
   const COOLDOWN = 1200;
   const TOKEN_KEY = "pixelbattle.token.v1";
   const SETTINGS_KEY = "pixelbattle.settings.v1";
-  const API = (location.hostname.indexOf("onrender.com") !== -1) ? "" : "https://pipixels.onrender.com";
+  const API = (location.hostname.indexOf("onrender.com") !== -1) ? "" : "https://onrender.com";
   const COLORS = ["#111111","#ffffff","#ff3b4e","#ffc62e","#2dce89","#38a3ff","#9d4edd","#c98a5b","#7a4a2e","#1e3a4c","#a5e04a","#19c3c9","#2557e8","#cdb4ff","#ff8fb1","#f6e58d"];
 
   function loadJSON(k, f) {
@@ -337,7 +345,7 @@
   var me = null;
   var settings = Object.assign({
     fx: true, sound: true, volume: 0.6,
-    showHud: true, showCoords: true, showGrid: false, reducedMotion: false, confirmPlace: false
+    showHud: true, showCoords: true, showGrid: true, reducedMotion: false, confirmPlace: false
   }, loadJSON(SETTINGS_KEY, {}));
   var pixels = {};
   var lastOnline = 0;
@@ -349,6 +357,8 @@
   var stage = document.getElementById("stage");
   var cv = document.getElementById("cv");
   var ctx = cv.getContext("2d");
+  var gridCv = document.getElementById("gridCv");
+  var gridCtx = gridCv.getContext("2d");
   var hud = document.getElementById("hud");
   var statusEl = document.getElementById("status");
   var zl = document.getElementById("zl");
@@ -421,6 +431,7 @@
     if (prog.stamina >= 1) cdt.textContent = "Можно ставить";
     else cdt.textContent = "Восстановление " + Math.ceil((prog.nextIn || 0) / 1000) + " с";
   }
+
   function refreshUserUI() {
     var name = me ? me.nick : "";
     var av = me && me.avatar ? me.avatar : "";
@@ -432,37 +443,41 @@
     updateProgressUI();
   }
 
+  function drawGrid() {
+    var dpr = window.devicePixelRatio || 1;
+    var cellPx = scale * dpr;
+    var gw = Math.max(1, Math.round(W * cellPx));
+    var gh = Math.max(1, Math.round(H * cellPx));
+
+    if (gridCv.width !== gw || gridCv.height !== gh) {
+      gridCv.width = gw;
+      gridCv.height = gh;
+    }
+    gridCtx.clearRect(0, 0, gw, gh);
+
+    if (!settings.showGrid || scale < 4) return;
+
+    var alpha = Math.min(0.22, (scale - 3) * 0.025);
+    gridCtx.strokeStyle = "rgba(0, 0, 0, " + alpha.toFixed(3) + ")";
+    gridCtx.lineWidth = 1;
+    gridCtx.beginPath();
+
+    for (var x = 1; x < W; x++) {
+      var px = Math.round(x * cellPx) + 0.5;
+      gridCtx.moveTo(px, 0);
+      gridCtx.lineTo(px, gh);
+    }
+    for (var y = 1; y < H; y++) {
+      var py = Math.round(y * cellPx) + 0.5;
+      gridCtx.moveTo(0, py);
+      gridCtx.lineTo(gw, py);
+    }
+    gridCtx.stroke();
+  }
+
   function redraw() {
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, W, H);
-    if (settings.showGrid) {
-      // minor every 5, major every 25
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = "rgba(0,0,0,0.045)";
-      ctx.beginPath();
-      for (var x = 0; x <= W; x += 5) {
-        if (x % 25 === 0) continue;
-        ctx.moveTo(x + 0.5, 0);
-        ctx.lineTo(x + 0.5, H);
-      }
-      for (var y = 0; y <= H; y += 5) {
-        if (y % 25 === 0) continue;
-        ctx.moveTo(0, y + 0.5);
-        ctx.lineTo(W, y + 0.5);
-      }
-      ctx.stroke();
-      ctx.strokeStyle = "rgba(0,0,0,0.11)";
-      ctx.beginPath();
-      for (var x = 0; x <= W; x += 25) {
-        ctx.moveTo(x + 0.5, 0);
-        ctx.lineTo(x + 0.5, H);
-      }
-      for (var y = 0; y <= H; y += 25) {
-        ctx.moveTo(0, y + 0.5);
-        ctx.lineTo(W, y + 0.5);
-      }
-      ctx.stroke();
-    }
     var keys = Object.keys(pixels);
     for (var i = 0; i < keys.length; i++) {
       var parts = keys[i].split(",");
@@ -481,6 +496,7 @@
   function applyCam() {
     stage.style.transform = "translate(" + camX + "px," + camY + "px) scale(" + scale + ")";
     zl.textContent = Math.round(scale * 100) + "%";
+    drawGrid();
   }
 
   function fit() {
@@ -497,15 +513,14 @@
 
   function zoomAt(factor, cx, cy) {
     var next = scale * factor;
-    if (next < 0.25) next = 0.25;
-    if (next > 24) next = 24;
+    if (next < 0.35) next = 0.35;
+    if (next > 40) next = 40;
     factor = next / scale;
     camX = cx - (cx - camX) * factor;
     camY = cy - (cy - camY) * factor;
     scale = next;
     applyCam();
   }
-
   function paintSV() {
     svg.fillStyle = hsvToHex(HH, 1, 1);
     svg.fillRect(0, 0, 256, 140);
@@ -530,10 +545,11 @@
     c = String(c || "").toLowerCase();
     if (!/^#[0-9a-f]{6}$/.test(c)) return;
     var t = hexToHsv(c);
-    if (t[1] > 0 && t[2] > 0) HH = t[0];
-    SS = t[1]; VV = t[2];
+    if (t.at(1) > 0 && t.at(2) > 0) HH = t.at(0);
+    SS = t.at(1); VV = t.at(2);
     paintSV(); syncColorUI();
   }
+
   function pickSV(e) {
     var r = sv.getBoundingClientRect();
     SS = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
@@ -563,7 +579,7 @@
       b.type = "button"; b.className = "sw"; b.style.background = c; b.dataset.c = c;
       b.onclick = function () { setColor(c); };
       swatches.appendChild(b);
-    })(COLORS[i]);
+    })(COLORS.at(i));
   }
   setColor("#111111");
 
@@ -640,9 +656,11 @@
     if (settings.confirmPlace && !confirm("Поставить пиксель сюда?")) return;
     if (placing) return;
     if (Date.now() - lastPlace < COOLDOWN) return;
+
     var key = x + "," + y;
-    var prevCell = pixels[key]; var prevColor = prevCell && prevCell.color ? prevCell.color : prevCell;
-if (prevColor === color) return;
+    var prevCell = pixels[key];
+    var prevColor = prevCell ? (prevCell.color ? prevCell.color : prevCell) : "#ffffff";
+    if (String(prevColor).toLowerCase() === color) return;
 
     placing = true;
     statusEl.textContent = "отправка...";
@@ -679,20 +697,49 @@ if (prevColor === color) return;
     }
   }
 
-  var drag = null, moved = false;
+  var pointers = new Map();
+  var drag = null, moved = false, pinchDist = 0;
+
   view.addEventListener("pointerdown", function (e) {
     ensureAudio();
     view.setPointerCapture(e.pointerId);
-    drag = { x: e.clientX, y: e.clientY, camX: camX, camY: camY };
-    moved = false;
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (pointers.size === 1) {
+      drag = { x: e.clientX, y: e.clientY, camX: camX, camY: camY };
+      moved = false;
+    } else if (pointers.size === 2) {
+      var pts = Array.from(pointers.values());
+      pinchDist = Math.hypot(pts.at(0).x - pts.at(1).x, pts.at(0).y - pts.at(1).y);
+      drag = null;
+      moved = true;
+    }
   });
+
   view.addEventListener("pointermove", function (e) {
+    if (pointers.has(e.pointerId)) {
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
+
+    if (pointers.size === 2) {
+      var pts = Array.from(pointers.values());
+      var newDist = Math.hypot(pts.at(0).x - pts.at(1).x, pts.at(0).y - pts.at(1).y);
+      if (pinchDist > 0 && newDist > 0) {
+        var r = view.getBoundingClientRect();
+        var midX = (pts.at(0).x + pts.at(1).x) / 2 - r.left;
+        var midY = (pts.at(0).y + pts.at(1).y) / 2 - r.top;
+        zoomAt(newDist / pinchDist, midX, midY);
+      }
+      pinchDist = newDist;
+      return;
+    }
+
     var c = cellFromEvent(e);
     if (!c) { hud.textContent = "—"; }
     else {
-      var cell = pixels[c[0] + "," + c[1]];
+      var cell = pixels[c.at(0) + "," + c.at(1)];
       var by = cell && cell.by ? cell.by : "";
-      hud.textContent = by ? (c[0] + ", " + c[1] + " · " + by) : (c[0] + ", " + c[1]);
+      hud.textContent = by ? (c.at(0) + ", " + c.at(1) + " · " + by) : (c.at(0) + ", " + c.at(1));
     }
     if (!drag) return;
     var dx = e.clientX - drag.x, dy = e.clientY - drag.y;
@@ -703,14 +750,22 @@ if (prevColor === color) return;
       applyCam();
     }
   });
-  view.addEventListener("pointerup", function (e) {
-    if (!moved) {
+
+  function endPointer(e) {
+    pointers.delete(e.pointerId);
+    if (pointers.size < 2) pinchDist = 0;
+    if (drag && !moved && pointers.size === 0) {
       var c = cellFromEvent(e);
-      if (c) place(c[0], c[1]);
+      if (c) place(c.at(0), c.at(1));
     }
-    drag = null; moved = false;
-  });
-  view.addEventListener("pointercancel", function () { drag = null; moved = false; });
+    if (pointers.size === 0) {
+      drag = null;
+      moved = false;
+    }
+  }
+
+  view.addEventListener("pointerup", endPointer);
+  view.addEventListener("pointercancel", endPointer);
   view.addEventListener("pointerleave", function () { hud.textContent = "—"; });
 
   view.addEventListener("wheel", function (e) {
@@ -721,12 +776,13 @@ if (prevColor === color) return;
   }, { passive: false });
 
   document.getElementById("zin").onclick = function () {
-    zoomAt(1.25, view.clientWidth / 2, view.clientHeight / 2);
+    zoomAt(1.3, view.clientWidth / 2, view.clientHeight / 2);
   };
   document.getElementById("zout").onclick = function () {
-    zoomAt(0.8, view.clientWidth / 2, view.clientHeight / 2);
+    zoomAt(0.77, view.clientWidth / 2, view.clientHeight / 2);
   };
   document.getElementById("btnCenter").onclick = fit;
+
   var btnGrid = document.getElementById("btnGrid");
   function syncGridBtn() {
     btnGrid.classList.toggle("on", !!settings.showGrid);
@@ -737,102 +793,100 @@ if (prevColor === color) return;
     settings.showGrid = !settings.showGrid;
     try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch (e) {}
     syncGridBtn();
-    redraw();
+    drawGrid();
   };
+
   document.getElementById("btnShare").onclick = async function () {
     var url = location.origin + "/";
     try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(url);
-      } else {
-        prompt("Ссылка на поле:", url);
-        return;
-      }
-      statusEl.textContent = "ссылка скопирована";
-      setTimeout(function () {
-        statusEl.textContent = me ? ("онлайн · " + me.nick) : "онлайн · гость";
-      }, 1500);
-    } catch (e) {
-      prompt("Ссылка на поле:", url);
-    }
-  };
-  document.getElementById("btnPng").onclick = function () {
-    var s = 2;
-    var out = document.createElement("canvas");
-    out.width = W * s; out.height = H * s;
-    var o = out.getContext("2d");
-    o.imageSmoothingEnabled = false;
-    o.fillStyle = "#fff";
-    o.fillRect(0, 0, out.width, out.height);
-    o.drawImage(cv, 0, 0, out.width, out.height);
-    out.toBlob(function (b) {
-      var a = document.createElement("a");
-      a.href = URL.createObjectURL(b);
-      a.download = "pixel-battle.png";
-      a.click();
-    });
-  };
 
-  (function tick() {
-    if (me && me.progress) {
-      var p = me.progress;
-      if (p.stamina < p.staminaMax && p.regenMs) {
-        var now = Date.now();
-        if (!p._localAt) p._localAt = now;
-        var elapsed = now - p._localAt;
-        if (elapsed >= p.regenMs) {
-          var gain = Math.floor(elapsed / p.regenMs);
-          p.stamina = Math.min(p.staminaMax, p.stamina + gain);
-          p._localAt += gain * p.regenMs;
-          p.nextIn = p.stamina >= p.staminaMax ? 0 : (p.regenMs - (now - p._localAt));
-        } else {
-          p.nextIn = p.regenMs - elapsed;
-        }
-      }
-      updateProgressUI();
-    }
-    var left = Math.max(0, COOLDOWN - (Date.now() - lastPlace));
-    if (left > 0 && me) {
-      cdt.textContent = "Кулдаун " + Math.ceil(left / 1000) + " с";
-    }
-    requestAnimationFrame(tick);
-  })();
-
-  async function boot() {
-    try {
-      if (token) {
-        var meData = await api("/api/me");
-        me = meData.user;
-      }
-    } catch (e) {
-      token = ""; me = null;
-      localStorage.removeItem(TOKEN_KEY);
-    }
-    refreshUserUI();
-    try {
-      var data = await api("/api/canvas");
-      pixels = data.pixels || {};
-      if (typeof data.online === "number") lastOnline = data.online;
-      redraw();
-      statusEl.textContent = me ? ("онлайн · " + me.nick) : "онлайн · гость";
-    } catch (e) {
-      statusEl.textContent = "сервер недоступен";
-      redraw();
-    }
-    fit();
-    setInterval(async function () {
-      try {
-        var data = await api("/api/canvas");
-        pixels = data.pixels || {};
-        if (typeof data.online === "number") lastOnline = data.online;
-        redraw();
-      } catch (e) {}
-    }, 4000);
-  }
-
-  window.addEventListener("resize", function () { applyCam(); });
-  boot();
+if (navigator.clipboard && navigator.clipboard.writeText) {
+await navigator.clipboard.writeText(url);
+} else {
+prompt("Ссылка на поле:", url);
+return;
+}
+statusEl.textContent = "ссылка скопирована";
+setTimeout(function () {
+statusEl.textContent = me ? ("онлайн · " + me.nick) : "онлайн · гость";
+}, 1500);
+} catch (e) {
+prompt("Ссылка на поле:", url);
+}
+};
+document.getElementById("btnPng").onclick = function () {
+var s = 2;
+var out = document.createElement("canvas");
+out.width = W * s; out.height = H * s;
+var o = out.getContext("2d");
+o.imageSmoothingEnabled = false;
+o.fillStyle = "#fff";
+o.fillRect(0, 0, out.width, out.height);
+o.drawImage(cv, 0, 0, out.width, out.height);
+out.toBlob(function (b) {
+var a = document.createElement("a");
+a.href = URL.createObjectURL(b);
+a.download = "pixel-battle.png";
+a.click();
+});
+};
+(function tick() {
+if (me && me.progress) {
+var p = me.progress;
+if (p.stamina < p.staminaMax && p.regenMs) {
+var now = Date.now();
+if (!p._localAt) p._localAt = now;
+var elapsed = now - p._localAt;
+if (elapsed >= p.regenMs) {
+var gain = Math.floor(elapsed / p.regenMs);
+p.stamina = Math.min(p.staminaMax, p.stamina + gain);
+p._localAt += gain * p.regenMs;
+p.nextIn = p.stamina >= p.staminaMax ? 0 : (p.regenMs - (now - p._localAt));
+} else {
+p.nextIn = p.regenMs - elapsed;
+}
+}
+updateProgressUI();
+}
+var left = Math.max(0, COOLDOWN - (Date.now() - lastPlace));
+if (left > 0 && me) {
+cdt.textContent = "Кулдаун " + Math.ceil(left / 1000) + " с";
+}
+requestAnimationFrame(tick);
 })();
-</script>
-</body>
-</html>
+async function boot() {
+try {
+if (token) {
+var meData = await api("/api/me");
+me = meData.user;
+}
+} catch (e) {
+token = ""; me = null;
+localStorage.removeItem(TOKEN_KEY);
+}
+refreshUserUI();
+try {
+var data = await api("/api/canvas");
+pixels = data.pixels || {};
+if (typeof data.online === "number") lastOnline = data.online;
+redraw();
+statusEl.textContent = me ? ("онлайн · " + me.nick) : "онлайн · гость";
+} catch (e) {
+statusEl.textContent = "сервер недоступен";
+redraw();
+}
+fit();
+setInterval(async function () {
+try {
+var data = await api("/api/canvas");
+pixels = data.pixels || {};
+if (typeof data.online === "number") lastOnline = data.online;
+redraw();
+} catch (e) {}
+}, 4000);
+}
+window.addEventListener("resize", function () { applyCam(); });
+boot();
+})();
+
+

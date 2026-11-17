@@ -29,6 +29,7 @@ function readJSON(file, fallback) {
     return fallback;
   }
 }
+
 function writeJSON(file, value) {
   fs.writeFileSync(file, JSON.stringify(value), "utf8");
 }
@@ -38,24 +39,36 @@ let canvas = readJSON(CANVAS_FILE, {});
 const presence = {};
 const regByIp = {};
 
-function saveUsers() { writeJSON(USERS_FILE, store); }
-function saveCanvas() { writeJSON(CANVAS_FILE, canvas); }
+function saveUsers() {
+  writeJSON(USERS_FILE, store);
+}
+
+function saveCanvas() {
+  writeJSON(CANVAS_FILE, canvas);
+}
 
 function sha256(text) {
   return crypto.createHash("sha256").update(text).digest("hex");
 }
+
 function hashPass(salt, pass) {
   return sha256(salt + ":" + pass);
 }
+
 function makeToken() {
   return crypto.randomBytes(24).toString("hex");
 }
+
 function dayKey() {
   return new Date().toISOString().slice(0, 10);
 }
+
 function clientIp(req) {
   const xf = req.headers["x-forwarded-for"];
-  if (typeof xf === "string" && xf.length) return xf.split(",")[0].trim();
+  if (typeof xf === "string" && xf.length > 0) {
+    const parts = xf.split(",");
+    return parts.at(0).trim();
+  }
   return req.socket.remoteAddress || "unknown";
 }
 
@@ -63,15 +76,18 @@ function levelFromXp(xp) {
   xp = Math.max(0, Number(xp) || 0);
   return Math.floor(Math.sqrt(xp / 50)) + 1;
 }
+
 function xpToNext(level) {
   const L = Math.max(1, level);
   const need = 50 * L * L;
   const prev = 50 * (L - 1) * (L - 1);
   return { need, prev, into: need - prev };
 }
+
 function maxStamina(level) {
   return BASE_STAMINA + Math.max(0, level - 1) * 3;
 }
+
 function regenMs(level) {
   return Math.max(12000, BASE_REGEN_MS - Math.max(0, level - 1) * 800);
 }
@@ -135,6 +151,7 @@ function cleanTokens() {
 function touchPresence(nick) {
   if (nick) presence[nick] = Date.now();
 }
+
 function onlineCount() {
   const now = Date.now();
   let n = 0;
@@ -176,9 +193,13 @@ function publicUser(nick, user) {
 
 function normalizeCell(val) {
   if (!val) return null;
-  if (typeof val === "string") return { color: val, by: "", at: 0 };
+  if (typeof val === "string") return { color: val.toLowerCase(), by: "", at: 0 };
   if (typeof val === "object" && val.color) {
-    return { color: String(val.color), by: String(val.by || ""), at: Number(val.at || 0) };
+    return {
+      color: String(val.color).toLowerCase(),
+      by: String(val.by || ""),
+      at: Number(val.at || 0),
+    };
   }
   return null;
 }
@@ -261,7 +282,10 @@ app.post("/api/login", (req, res) => {
   const pass = String(req.body?.pass || "");
   let found = null;
   for (const k of Object.keys(store.users)) {
-    if (k.toLowerCase() === nickIn.toLowerCase()) { found = k; break; }
+    if (k.toLowerCase() === nickIn.toLowerCase()) {
+      found = k;
+      break;
+    }
   }
   if (!found) return res.status(401).json({ error: "Неверный ник или пароль" });
   const user = store.users[found];
@@ -324,80 +348,74 @@ app.post("/api/pixel", (req, res) => {
     return res.status(400).json({ error: "Неверные координаты" });
   }
   if (!/^#[0-9a-f]{6}$/.test(color)) {
-    return res.status(400).json({ error: "Неверный цвет" });
-  }
 
-  const now = Date.now();
-  const waitCd = COOLDOWN_MS - (now - (session.user.lastPlace || 0));
-  if (waitCd > 0) {
-    return res.status(429).json({ error: "Кулдаун", wait: waitCd });
-  }
-
-  const prog = syncStamina(session.user);
-  if (prog.stamina < 1) {
-    return res.status(429).json({
-      error: "Нет стамины",
-      wait: prog.nextIn,
-      user: publicUser(session.nick, session.user),
-    });
-  }
-
-  const key = x + "," + y;
-  const prev = normalizeCell(canvas[key]);
-  if (prev && prev.color === color && prev.by === session.nick) {
-    return res.json({
-      ok: true,
-      unchanged: true,
-      pixels: canvas,
-      online: onlineCount(),
-      user: publicUser(session.nick, session.user),
-    });
-  }
-
-  // spend stamina
-  const p = ensureProgress(session.user);
-  p.stamina = Math.max(0, prog.stamina - 1);
-  p.staminaUpdatedAt = now;
-  p.xp = (p.xp || 0) + XP_PER_PIXEL;
-
-  canvas[key] = { color, by: session.nick, at: now };
-  session.user.lastPlace = now;
-
-  const day = dayKey();
-  if (!session.user.stats) session.user.stats = { n: 0, days: {}, last: 0 };
-  session.user.stats.days = session.user.stats.days || {};
-  session.user.stats.n = (session.user.stats.n || 0) + 1;
-  session.user.stats.days[day] = (session.user.stats.days[day] || 0) + 1;
-  session.user.stats.last = now;
-
-  saveCanvas();
-  saveUsers();
-  touchPresence(session.nick);
-
-  res.json({
-    ok: true,
-    x,
-    y,
-    color,
-    by: session.nick,
-    pixels: canvas,
-    online: onlineCount(),
-    user: publicUser(session.nick, session.user),
-  });
+return res.status(400).json({ error: "Неверный цвет" });
+}
+const key = x + "," + y;
+const prev = normalizeCell(canvas[key]);
+const currentColor = prev ? prev.color : "#ffffff";
+if (currentColor === color) {
+return res.json({
+ok: true,
+unchanged: true,
+pixels: canvas,
+online: onlineCount(),
+user: publicUser(session.nick, session.user),
 });
-
+}
+const now = Date.now();
+const waitCd = COOLDOWN_MS - (now - (session.user.lastPlace || 0));
+if (waitCd > 0) {
+return res.status(429).json({ error: "Кулдаун", wait: waitCd });
+}
+const prog = syncStamina(session.user);
+if (prog.stamina < 1) {
+return res.status(429).json({
+error: "Нет стамины",
+wait: prog.nextIn,
+user: publicUser(session.nick, session.user),
+});
+}
+const p = ensureProgress(session.user);
+p.stamina = Math.max(0, prog.stamina - 1);
+p.staminaUpdatedAt = now;
+p.xp = (p.xp || 0) + XP_PER_PIXEL;
+canvas[key] = { color, by: session.nick, at: now };
+session.user.lastPlace = now;
+const day = dayKey();
+if (!session.user.stats) session.user.stats = { n: 0, days: {}, last: 0 };
+session.user.stats.days = session.user.stats.days || {};
+session.user.stats.n = (session.user.stats.n || 0) + 1;
+session.user.stats.days[day] = (session.user.stats.days[day] || 0) + 1;
+session.user.stats.last = now;
+saveCanvas();
+saveUsers();
+touchPresence(session.nick);
+res.json({
+ok: true,
+x,
+y,
+color,
+by: session.nick,
+pixels: canvas,
+online: onlineCount(),
+user: publicUser(session.nick, session.user),
+});
+});
 app.get("/favicon.svg", (_req, res) => {
-  res.type("image/svg+xml").send(`<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="14" fill="#111"/>
-  <rect x="12" y="12" width="16" height="16" fill="#fff"/>
-  <rect x="36" y="12" width="16" height="16" fill="#ff3b4e"/>
-  <rect x="12" y="36" width="16" height="16" fill="#38a3ff"/>
-  <rect x="36" y="36" width="16" height="16" fill="#2dce89"/>
-</svg>`);
+const svg = [
+'',
+'',
+'',
+'',
+'',
+'',
+'',
+''
+].join("");
+res.type("image/svg+xml").send(svg);
 });
-
 app.listen(PORT, () => {
-  console.log(`[pixel-battle] ${W}x${H} on http://127.0.0.1:${PORT}`);
-  console.log(`[pixel-battle] pixels: ${Object.keys(canvas).length}`);
+console.log("[pixel-battle] " + W + "x" + H + " on http://127.0.0.1:" + PORT);
+console.log("[pixel-battle] pixels: " + Object.keys(canvas).length);
 });
