@@ -37,6 +37,7 @@
     min-width: 0;
     overflow: hidden;
     touch-action: none;
+    -webkit-tap-highlight-color: transparent;
     cursor: crosshair;
     background:
       radial-gradient(ellipse 80% 50% at 50% -10%, rgba(255,255,255,.05), transparent 55%),
@@ -47,6 +48,7 @@
     left: 0; top: 0;
     transform-origin: 0 0;
     will-change: transform;
+    backface-visibility: hidden;
   }
   .board { position: relative; }
   .board-inner {
@@ -719,7 +721,7 @@
   };
 
   function drawGrid() {
-    var dpr = window.devicePixelRatio || 1;
+    var dpr = Math.min(window.devicePixelRatio || 1, 1.5);
     var cellPx = scale * dpr;
     var gw = Math.max(1, Math.round(W * cellPx));
     var gh = Math.max(1, Math.round(H * cellPx));
@@ -771,10 +773,14 @@
     }
   }
 
-  function applyCam() {
-    stage.style.transform = "translate(" + camX + "px," + camY + "px) scale(" + scale + ")";
-    zl.textContent = Math.round(scale * 100) + "%";
-    drawGrid();
+  var camFrame = 0;
+  function applyCam(drawGridNow) {
+    if (!camFrame) camFrame = requestAnimationFrame(function () {
+      camFrame = 0;
+      stage.style.transform = "translate3d(" + camX + "px," + camY + "px,0) scale(" + scale + ")";
+      zl.textContent = Math.round(scale * 100) + "%";
+      if (drawGridNow !== false) drawGrid();
+    });
   }
 
   function fit() {
@@ -786,10 +792,10 @@
     scale = s;
     camX = (vw - W * scale) / 2;
     camY = (vh - H * scale) / 2;
-    applyCam();
+    applyCam(true);
   }
 
-  function zoomAt(factor, cx, cy) {
+  function zoomAt(factor, cx, cy, deferGrid) {
     var next = scale * factor;
     if (next < 0.35) next = 0.35;
     if (next > 40) next = 40;
@@ -797,7 +803,7 @@
     camX = cx - (cx - camX) * factor;
     camY = cy - (cy - camY) * factor;
     scale = next;
-    applyCam();
+    applyCam(!deferGrid);
   }
 
   function paintSV() {
@@ -1055,7 +1061,7 @@
         var r = view.getBoundingClientRect();
         var midX = (pts[0].x + pts[1].x) / 2 - r.left;
         var midY = (pts[0].y + pts[1].y) / 2 - r.top;
-        zoomAt(newDist / pinchDist, midX, midY);
+        zoomAt(newDist / pinchDist, midX, midY, true);
       }
       pinchDist = newDist;
       return;
@@ -1077,7 +1083,7 @@
     if (moved) {
       camX = drag.camX + dx;
       camY = drag.camY + dy;
-      applyCam();
+      applyCam(false);
     }
   });
 
@@ -1092,6 +1098,7 @@
     if (pointers.size === 0) {
       drag = null;
       moved = false;
+      drawGrid();
     }
   }
 
@@ -1108,6 +1115,11 @@
   document.getElementById("zin").onclick = function () { zoomAt(1.3, view.clientWidth / 2, view.clientHeight / 2); };
   document.getElementById("zout").onclick = function () { zoomAt(0.77, view.clientWidth / 2, view.clientHeight / 2); };
   document.getElementById("btnCenter").onclick = fit;
+  var resizeFrame = 0;
+  window.addEventListener("resize", function () {
+    if (resizeFrame) cancelAnimationFrame(resizeFrame);
+    resizeFrame = requestAnimationFrame(function () { resizeFrame = 0; fit(); });
+  }, { passive: true });
 
   var btnGrid = document.getElementById("btnGrid");
   function syncGridBtn() {
